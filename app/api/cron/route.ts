@@ -18,7 +18,10 @@ const MAX_POSTS_PER_RUN = 3;
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  const querySecret = req.nextUrl.searchParams.get("secret");
+  const providedSecret = auth?.replace("Bearer ", "") ?? querySecret;
+
+  if (providedSecret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
