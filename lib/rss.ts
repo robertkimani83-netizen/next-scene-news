@@ -6,10 +6,8 @@ const parser = new Parser();
 // Add or remove sources here any time - this list is the only thing
 // you need to touch to change what the site pulls from.
 export const KENYA_FEEDS = [
-  { name: "The Star", url: "https://www.the-star.co.ke/rss" },
-  { name: "Citizen Digital", url: "https://www.citizen.digital/rss" },
-  { name: "Capital FM", url: "https://www.capitalfm.co.ke/news/feed/" },
-  { name: "Kenyans.co.ke", url: "https://www.kenyans.co.ke/feed" },
+  { name: "Kenyans.co.ke", url: "https://www.kenyans.co.ke/feeds/news" },
+  { name: "AllAfrica Kenya", url: "https://allafrica.com/tools/headlines/rdf/kenya/headlines.rdf" },
 ];
 
 export interface RawArticle {
