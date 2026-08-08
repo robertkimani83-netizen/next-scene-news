@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
   const freshRaw = raw.filter((a) => !existingLinks.has(a.link)).slice(0, MAX_POSTS_PER_RUN);
 
   const results = [];
+  const errors: string[] = [];
 
   for (const rawArticle of freshRaw) {
     try {
@@ -76,9 +77,17 @@ export async function GET(req: NextRequest) {
       addArticle(stored);
       results.push({ headline: stored.headline, postedTo: stored.postedTo });
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
       console.error(`Failed to process article "${rawArticle.title}":`, e);
+      errors.push(`"${rawArticle.title}": ${message}`);
     }
   }
 
-  return NextResponse.json({ processed: results.length, results });
+  return NextResponse.json({
+    rawFeedItemsFound: raw.length,
+    newItemsAfterDedup: freshRaw.length,
+    processed: results.length,
+    results,
+    errors,
+  });
 }
