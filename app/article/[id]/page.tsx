@@ -1,0 +1,62 @@
+import { getArticleById } from "@/lib/store";
+import { notFound } from "next/navigation";
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+
+function timeAgo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const hrs = Math.floor(diffMs / 3600000);
+  if (hrs < 1) return "moments ago";
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+export default async function ArticlePage({ params }: { params: { id: string } }) {
+  const article = await getArticleById(params.id);
+  if (!article) return notFound();
+
+  const paragraphs = article.article.split(/\n\n+/).filter(Boolean);
+
+  return (
+    <main>
+      <header className="site-header">
+        <Link href="/" style={{ textDecoration: "none" }}>
+          <div className="wordmark">
+            NEXT SCENE<span> NEWS</span>
+          </div>
+          <div className="tagline">Habari mpya, kila saa</div>
+        </Link>
+      </header>
+
+      <article className="article-page">
+        <div className="eyebrow">{article.sourceName}</div>
+        <h1 className="article-title">{article.headline}</h1>
+        <div className="byline">{timeAgo(article.publishedAt)}</div>
+
+        {article.photo && (
+          <div className="article-photo">
+            <img src={article.photo.url} alt={article.headline} />
+          </div>
+        )}
+
+        <div className="article-body">
+          {paragraphs.map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+        </div>
+
+        <div className="article-credit">
+          Originally reported by {article.sourceName}.{" "}
+          <a href={article.link} target="_blank" rel="noopener noreferrer">
+            View original source →
+          </a>
+        </div>
+
+        <Link href="/" className="back-link">
+          ← Back to Next Scene News
+        </Link>
+      </article>
+    </main>
+  );
+}
