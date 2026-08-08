@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchAllFeeds } from "@/lib/rss";
+import { fetchAllFeeds, fetchOgImage } from "@/lib/rss";
 import { rewriteArticle } from "@/lib/ai";
 import { findMatchingPhoto } from "@/lib/photos";
 import { addArticle, loadArticles, type StoredArticle } from "@/lib/store";
@@ -38,11 +38,12 @@ export async function GET(req: NextRequest) {
     try {
       const rewritten = await rewriteArticle(rawArticle);
 
-      // Use the publisher's own photo when the feed provided one;
-      // only fall back to a matched stock photo when it didn't.
-      const photo = rawArticle.realImageUrl
+      // Real-photo priority: 1) image embedded in the feed itself,
+      // 2) the article page's own social-preview image, 3) matched stock.
+      const realPhotoUrl = rawArticle.realImageUrl ?? (await fetchOgImage(rawArticle.link));
+      const photo = realPhotoUrl
         ? {
-            url: rawArticle.realImageUrl,
+            url: realPhotoUrl,
             photographer: rawArticle.sourceName,
             photographerUrl: rawArticle.link,
           }
