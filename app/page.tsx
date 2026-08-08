@@ -61,7 +61,7 @@ export default async function HomePage() {
               <div className="hero-copy">
                 <div className="eyebrow">{hero.sourceName}</div>
                 <h1>{hero.headline}</h1>
-                <p>{hero.teaser}</p>
+                <p>{hero.teaser ?? (hero as any).summary}</p>
                 <div className="byline">{timeAgo(hero.publishedAt)} · Read full story →</div>
               </div>
             </section>
@@ -82,7 +82,7 @@ export default async function HomePage() {
                       {a.sourceName} · {timeAgo(a.publishedAt)}
                     </div>
                     <h3>{a.headline}</h3>
-                    <p>{a.teaser}</p>
+                    <p>{a.teaser ?? (a as any).summary}</p>
                     <div className="social-status">
                       <span className={a.postedTo.facebook ? "live" : ""}>Facebook</span>
                       <span className={a.postedTo.instagram ? "live" : ""}>Instagram</span>
