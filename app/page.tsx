@@ -1,5 +1,9 @@
 import { loadArticles } from "@/lib/store";
 
+// This page reads live data from the database on every visit, so it
+// should never be pre-baked at build time - force fresh rendering.
+export const dynamic = "force-dynamic";
+
 function PulseLine() {
   return (
     <svg className="pulse-line" viewBox="0 0 90 20" xmlns="http://www.w3.org/2000/svg">
