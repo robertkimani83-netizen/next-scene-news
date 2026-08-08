@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const existing = loadArticles();
+  const existing = await loadArticles();
   const existingLinks = new Set(existing.map((a) => a.link));
 
   const raw = await fetchAllFeeds();
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      addArticle(stored);
+      await addArticle(stored);
       results.push({ headline: stored.headline, postedTo: stored.postedTo });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
