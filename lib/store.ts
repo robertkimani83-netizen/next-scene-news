@@ -1,7 +1,11 @@
-import fs from "fs";
-import path from "path";
 import type { RewrittenArticle } from "./ai";
 import type { MatchedPhoto } from "./photos";
+
+// Uses Upstash Redis's free REST API instead of a local file. Vercel's
+// servers reset their filesystem on every request, so a JSON file (the
+// original approach) can never actually persist - this fixes that with
+// a real (and still free, no-card) database.
+// Get credentials at https://console.upstash.com (Create Database -> REST API section).
 
 export interface StoredArticle extends RewrittenArticle {
   id: string;
@@ -12,27 +16,48 @@ export interface StoredArticle extends RewrittenArticle {
   postedTo: { facebook: boolean; instagram: boolean; tiktok: boolean };
 }
 
-const DATA_FILE = path.join(process.cwd(), "data", "articles.json");
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const KEY = "next-scene-news:articles";
 
-export function loadArticles(): StoredArticle[] {
-  if (!fs.existsSync(DATA_FILE)) return [];
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+async function redisGet(): Promise<StoredArticle[]> {
+  if (!REDIS_URL || !REDIS_TOKEN) return [];
+
+  const res = await fetch(`${REDIS_URL}/get/${KEY}`, {
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+  });
+  const data = await res.json();
+  if (!data.result) return [];
+
+  try {
+    return JSON.parse(data.result) as StoredArticle[];
+  } catch {
+    return [];
+  }
 }
 
-export function saveArticles(articles: StoredArticle[]) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(articles, null, 2));
+async function redisSet(articles: StoredArticle[]): Promise<void> {
+  if (!REDIS_URL || !REDIS_TOKEN) {
+    throw new Error("UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set");
+  }
+
+  await fetch(`${REDIS_URL}/set/${KEY}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${REDIS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(JSON.stringify(articles)),
+  });
 }
 
-export function addArticle(article: StoredArticle) {
-  const articles = loadArticles();
+export async function loadArticles(): Promise<StoredArticle[]> {
+  return redisGet();
+}
+
+export async function addArticle(article: StoredArticle): Promise<void> {
+  const articles = await redisGet();
   if (articles.some((a) => a.link === article.link)) return; // no duplicates
   articles.unshift(article);
-  saveArticles(articles.slice(0, 200)); // keep the store bounded
+  await redisSet(articles.slice(0, 200)); // keep the store bounded
 }
-
-// NOTE: a flat JSON file works for a personal project on Vercel's free tier,
-// but Vercel's filesystem resets on every deploy and isn't shared across
-// serverless function instances. For anything beyond testing, swap this
-// file for a free-tier database (Vercel KV, Supabase, or Turso all have
-// free tiers) - the rest of the code doesn't need to change, just these
-// two functions.
