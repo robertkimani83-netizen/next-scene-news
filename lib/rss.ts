@@ -40,3 +40,11 @@ export async function fetchAllFeeds(): Promise<RawArticle[]> {
         });
       }
     } catch (err) {
+      // One dead feed shouldn't take down the whole pipeline -
+      // log it and keep going with the others.
+      console.error(`Failed to fetch feed ${feed.name}:`, err);
+    }
+  }
+
+  return results;
+}
