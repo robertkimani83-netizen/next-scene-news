@@ -93,3 +93,30 @@ export async function fetchAllFeeds(): Promise<RawArticle[]> {
 
   return results;
 }
+
+// Many RSS feeds (especially WordPress-based ones) strip images out and
+// only include text. But nearly every news site still puts a preview photo
+// in the page's own HTML - the same image WhatsApp/Facebook show when you
+// paste the link. This fetches that page and reads it directly, which
+// works as a real-photo source even when the feed itself has none.
+export async function fetchOgImage(articleUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(articleUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    const match =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
