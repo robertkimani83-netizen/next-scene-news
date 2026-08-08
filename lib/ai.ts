@@ -5,29 +5,45 @@ import type { RawArticle } from "./rss";
 
 export interface RewrittenArticle {
   headline: string;
-  summary: string; // 3-5 sentence original summary for the website
+  teaser: string; // 1-2 sentence hook for the homepage story cards
+  article: string; // full multi-paragraph original article for the article page
   facebookCaption: string;
   instagramCaption: string;
   tiktokCaption: string;
-  photoSearchTerms: string; // keywords to find a matching photo
+  photoSearchTerms: string; // keywords to find a matching photo, used only if no real photo was found
 }
 
-const SYSTEM_PROMPT = `You are an editor for a Kenyan news site. You are given a headline and snippet
-from a news wire. Your job is to write an ORIGINAL summary in your own words - never copy the
-source's exact sentences. Keep facts accurate; do not invent details not in the snippet.
+const SYSTEM_PROMPT = `You are an editor for a Kenyan news site. You are given a headline, a short wire
+snippet, and (when available) extracted text from the original article's own web page.
+
+Your job is to write a genuinely ORIGINAL news article based on the facts in that material -
+never copy the source's sentences or mirror its structure. Rewrite everything in your own words,
+like a journalist would when covering another outlet's story. Only use facts that are actually
+present in the material given to you - never invent quotes, numbers, or details that aren't there.
+If the extracted page text is thin or mostly navigation/junk, write a shorter article rather than
+padding with invented details.
+
 Return ONLY valid JSON, no markdown fences, matching this shape:
 {
   "headline": "short punchy original headline, under 12 words",
-  "summary": "3-5 original sentences for a website article page",
+  "teaser": "1-2 sentence hook for a homepage card - makes someone want to click",
+  "article": "3-6 full original paragraphs (plain text, paragraphs separated by \\n\\n) covering the story properly",
   "facebookCaption": "1-2 sentence caption with a hook, no link (the link goes in a comment)",
   "instagramCaption": "1-2 sentence caption + 3-5 relevant hashtags, no link",
   "tiktokCaption": "short punchy caption + 3-5 relevant hashtags, no link",
   "photoSearchTerms": "2-4 words describing the best stock photo subject for this story"
 }`;
 
-export async function rewriteArticle(raw: RawArticle): Promise<RewrittenArticle> {
+export async function rewriteArticle(
+  raw: RawArticle,
+  extractedPageText: string
+): Promise<RewrittenArticle> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
+
+  const sourceMaterial = extractedPageText
+    ? `Wire snippet: ${raw.contentSnippet}\n\nExtracted article page text:\n${extractedPageText}`
+    : `Wire snippet: ${raw.contentSnippet}\n\n(No extracted page text was available - work only from the snippet and keep the article short.)`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
@@ -41,7 +57,7 @@ export async function rewriteArticle(raw: RawArticle): Promise<RewrittenArticle>
             role: "user",
             parts: [
               {
-                text: `Headline: ${raw.title}\nSnippet: ${raw.contentSnippet}\nSource: ${raw.sourceName}`,
+                text: `Headline: ${raw.title}\nSource: ${raw.sourceName}\n\n${sourceMaterial}`,
               },
             ],
           },
