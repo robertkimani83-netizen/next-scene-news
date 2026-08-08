@@ -23,14 +23,16 @@ const KEY = "next-scene-news:articles";
 async function redisGet(): Promise<StoredArticle[]> {
   if (!REDIS_URL || !REDIS_TOKEN) return [];
 
-  const res = await fetch(`${REDIS_URL}/get/${KEY}`, {
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-  });
-  const data = await res.json();
-  if (!data.result) return [];
-
   try {
-    return JSON.parse(data.result) as StoredArticle[];
+    const res = await fetch(`${REDIS_URL}/get/${KEY}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      cache: "no-store",
+    });
+    const data = await res.json();
+    if (!data.result) return [];
+
+    const parsed = JSON.parse(data.result);
+    return Array.isArray(parsed) ? (parsed as StoredArticle[]) : [];
   } catch {
     return [];
   }
