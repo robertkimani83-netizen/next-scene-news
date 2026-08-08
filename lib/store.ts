@@ -47,7 +47,7 @@ async function redisSet(articles: StoredArticle[]): Promise<void> {
       Authorization: `Bearer ${REDIS_TOKEN}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(JSON.stringify(articles)),
+    body: JSON.stringify(articles),
   });
 }
 
