@@ -16,8 +16,8 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-export default function HomePage() {
-  const articles = loadArticles();
+export default async function HomePage() {
+  const articles = await loadArticles();
   const [hero, ...rest] = articles;
 
   return (
