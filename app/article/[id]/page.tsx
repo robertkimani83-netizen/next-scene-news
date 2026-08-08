@@ -1,17 +1,8 @@
-import { loadArticles } from "@/lib/store";
+import { getArticleById } from "@/lib/store";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 
-// This page reads live data from the database on every visit, so it
-// should never be pre-baked at build time - force fresh rendering.
 export const dynamic = "force-dynamic";
-
-function PulseLine() {
-  return (
-    <svg className="pulse-line" viewBox="0 0 90 20" xmlns="http://www.w3.org/2000/svg">
-      <path d="M0 10 L25 10 L32 2 L40 18 L47 10 L90 10" />
-    </svg>
-  );
-}
 
 function timeAgo(iso: string) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -21,80 +12,52 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-export default async function HomePage() {
-  const articles = await loadArticles();
-  const [hero, ...rest] = articles;
+export default async function ArticlePage({ params }: { params: { id: string } }) {
+  const article = await getArticleById(params.id);
+  if (!article) return notFound();
+
+  const bodyText = article.article ?? (article as any).summary ?? "";
+  const paragraphs = bodyText.split(/\n\n+/).filter(Boolean);
 
   return (
     <main>
       <header className="site-header">
-        <div>
+        <Link href="/" style={{ textDecoration: "none" }}>
           <div className="wordmark">
             NEXT SCENE<span> NEWS</span>
           </div>
           <div className="tagline">Habari mpya, kila saa</div>
-        </div>
+        </Link>
       </header>
 
-      {articles.length > 0 && (
-        <div className="pulse-ticker">
-          <span className="label">BREAKING</span>
-          <PulseLine />
-          <div className="ticker-text">
-            {articles.slice(0, 5).map((a) => a.headline).join("   •   ")}
-          </div>
-        </div>
-      )}
+      <article className="article-page">
+        <div className="eyebrow">{article.sourceName}</div>
+        <h1 className="article-title">{article.headline}</h1>
+        <div className="byline">{timeAgo(article.publishedAt)}</div>
 
-      {!hero ? (
-        <div className="empty-state">
-          <h2>No stories yet</h2>
-          <p>Run the /api/cron pipeline to pull in the first batch of news.</p>
-        </div>
-      ) : (
-        <>
-          <Link href={`/article/${hero.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-            <section className="hero">
-              <div className="hero-media">
-                {hero.photo && <img src={hero.photo.url} alt={hero.headline} />}
-              </div>
-              <div className="hero-copy">
-                <div className="eyebrow">{hero.sourceName}</div>
-                <h1>{hero.headline}</h1>
-                <p>{hero.teaser ?? (hero as any).summary}</p>
-                <div className="byline">{timeAgo(hero.publishedAt)} · Read full story →</div>
-              </div>
-            </section>
-          </Link>
-
-          <div className="section-label">More stories</div>
-          <div className="story-grid">
-            {rest.map((a) => (
-              <Link
-                href={`/article/${a.id}`}
-                key={a.id}
-                style={{ textDecoration: "none", color: "inherit" }}
-              >
-                <article className="story-card">
-                  <div className="thumb">{a.photo && <img src={a.photo.url} alt={a.headline} />}</div>
-                  <div className="body">
-                    <div className="source">
-                      {a.sourceName} · {timeAgo(a.publishedAt)}
-                    </div>
-                    <h3>{a.headline}</h3>
-                    <p>{a.teaser ?? (a as any).summary}</p>
-                    <div className="social-status">
-                      <span className={a.postedTo.facebook ? "live" : ""}>Facebook</span>
-                      <span className={a.postedTo.instagram ? "live" : ""}>Instagram</span>
-                      <span className={a.postedTo.tiktok ? "live" : ""}>TikTok</span>
-                    </div>
-                  </div>
-                </article>
-              </Link>
-            ))}
+        {article.photo && (
+          <div className="article-photo">
+            <img src={article.photo.url} alt={article.headline} />
           </div>
-        </>
-      )}
+        )}
+
+        <div className="article-body">
+          {paragraphs.map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+        </div>
+
+        <div className="article-credit">
+          Originally reported by {article.sourceName}.{" "}
+          <a href={article.link} target="_blank" rel="noopener noreferrer">
+            View original source →
+          </a>
+        </div>
+
+        <Link href="/" className="back-link">
+          ← Back to Next Scene News
+        </Link>
+      </article>
     </main>
   );
 }
