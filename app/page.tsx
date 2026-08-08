@@ -1,4 +1,5 @@
 import { loadArticles } from "@/lib/store";
+import Link from "next/link";
 
 // This page reads live data from the database on every visit, so it
 // should never be pre-baked at build time - force fresh rendering.
@@ -52,36 +53,44 @@ export default async function HomePage() {
         </div>
       ) : (
         <>
-          <section className="hero">
-            <div className="hero-media">
-              {hero.photo && <img src={hero.photo.url} alt={hero.headline} />}
-            </div>
-            <div className="hero-copy">
-              <div className="eyebrow">{hero.sourceName}</div>
-              <h1>{hero.headline}</h1>
-              <p>{hero.summary}</p>
-              <div className="byline">
-                {timeAgo(hero.publishedAt)} · <a href={hero.link}>Read original source →</a>
+          <Link href={`/article/${hero.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+            <section className="hero">
+              <div className="hero-media">
+                {hero.photo && <img src={hero.photo.url} alt={hero.headline} />}
               </div>
-            </div>
-          </section>
+              <div className="hero-copy">
+                <div className="eyebrow">{hero.sourceName}</div>
+                <h1>{hero.headline}</h1>
+                <p>{hero.teaser}</p>
+                <div className="byline">{timeAgo(hero.publishedAt)} · Read full story →</div>
+              </div>
+            </section>
+          </Link>
 
           <div className="section-label">More stories</div>
           <div className="story-grid">
             {rest.map((a) => (
-              <article className="story-card" key={a.id}>
-                <div className="thumb">{a.photo && <img src={a.photo.url} alt={a.headline} />}</div>
-                <div className="body">
-                  <div className="source">{a.sourceName} · {timeAgo(a.publishedAt)}</div>
-                  <h3>{a.headline}</h3>
-                  <p>{a.summary}</p>
-                  <div className="social-status">
-                    <span className={a.postedTo.facebook ? "live" : ""}>Facebook</span>
-                    <span className={a.postedTo.instagram ? "live" : ""}>Instagram</span>
-                    <span className={a.postedTo.tiktok ? "live" : ""}>TikTok</span>
+              <Link
+                href={`/article/${a.id}`}
+                key={a.id}
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
+                <article className="story-card">
+                  <div className="thumb">{a.photo && <img src={a.photo.url} alt={a.headline} />}</div>
+                  <div className="body">
+                    <div className="source">
+                      {a.sourceName} · {timeAgo(a.publishedAt)}
+                    </div>
+                    <h3>{a.headline}</h3>
+                    <p>{a.teaser}</p>
+                    <div className="social-status">
+                      <span className={a.postedTo.facebook ? "live" : ""}>Facebook</span>
+                      <span className={a.postedTo.instagram ? "live" : ""}>Instagram</span>
+                      <span className={a.postedTo.tiktok ? "live" : ""}>TikTok</span>
+                    </div>
                   </div>
-                </div>
-              </article>
+                </article>
+              </Link>
             ))}
           </div>
         </>
