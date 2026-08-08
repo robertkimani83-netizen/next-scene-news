@@ -37,7 +37,16 @@ export async function GET(req: NextRequest) {
   for (const rawArticle of freshRaw) {
     try {
       const rewritten = await rewriteArticle(rawArticle);
-      const photo = await findMatchingPhoto(rewritten.photoSearchTerms);
+
+      // Use the publisher's own photo when the feed provided one;
+      // only fall back to a matched stock photo when it didn't.
+      const photo = rawArticle.realImageUrl
+        ? {
+            url: rawArticle.realImageUrl,
+            photographer: rawArticle.sourceName,
+            photographerUrl: rawArticle.link,
+          }
+        : await findMatchingPhoto(rewritten.photoSearchTerms);
 
       const stored: StoredArticle = {
         id: crypto.randomUUID(),
