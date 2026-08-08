@@ -57,6 +57,11 @@ export async function loadArticles(): Promise<StoredArticle[]> {
   return redisGet();
 }
 
+export async function getArticleById(id: string): Promise<StoredArticle | null> {
+  const articles = await redisGet();
+  return articles.find((a) => a.id === id) ?? null;
+}
+
 export async function addArticle(article: StoredArticle): Promise<void> {
   const articles = await redisGet();
   if (articles.some((a) => a.link === article.link)) return; // no duplicates
