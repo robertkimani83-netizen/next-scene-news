@@ -1,6 +1,12 @@
 import Parser from "rss-parser";
 
-const parser = new Parser();
+const parser = new Parser({
+  headers: {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  },
+  timeout: 10000,
+});
 
 // Free, public RSS feeds from Kenyan outlets.
 // Add or remove sources here any time - this list is the only thing
@@ -34,11 +40,3 @@ export async function fetchAllFeeds(): Promise<RawArticle[]> {
         });
       }
     } catch (err) {
-      // One dead feed shouldn't take down the whole pipeline -
-      // log it and keep going with the others.
-      console.error(`Failed to fetch feed ${feed.name}:`, err);
-    }
-  }
-
-  return results;
-}
