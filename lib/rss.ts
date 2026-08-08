@@ -94,12 +94,17 @@ export async function fetchAllFeeds(): Promise<RawArticle[]> {
   return results;
 }
 
-// Many RSS feeds (especially WordPress-based ones) strip images out and
-// only include text. But nearly every news site still puts a preview photo
-// in the page's own HTML - the same image WhatsApp/Facebook show when you
-// paste the link. This fetches that page and reads it directly, which
-// works as a real-photo source even when the feed itself has none.
-export async function fetchOgImage(articleUrl: string): Promise<string | null> {
+// Many RSS feeds (especially WordPress-based ones) strip out images and only
+// give a one-sentence teaser, not real article text. But nearly every news
+// site still has the full picture and article body sitting in its own page -
+// this fetches that page once and pulls both out, giving the AI real facts
+// to write from instead of a thin snippet, and a real photo instead of stock.
+export interface ArticlePageData {
+  imageUrl: string | null;
+  bodyText: string;
+}
+
+export async function fetchArticlePage(articleUrl: string): Promise<ArticlePageData> {
   try {
     const res = await fetch(articleUrl, {
       headers: {
@@ -108,15 +113,28 @@ export async function fetchOgImage(articleUrl: string): Promise<string | null> {
       },
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { imageUrl: null, bodyText: "" };
 
     const html = await res.text();
-    const match =
+
+    const imageMatch =
       html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
 
-    return match ? match[1] : null;
+    // Strip scripts/styles/tags to get plain readable text, then trim to a
+    // reasonable chunk - enough real material for the AI to work from
+    // without needing the entire page (nav menus, footers, ads, etc).
+    const bodyText = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 4000);
+
+    return { imageUrl: imageMatch ? imageMatch[1] : null, bodyText };
   } catch {
-    return null;
+    return { imageUrl: null, bodyText: "" };
   }
 }
