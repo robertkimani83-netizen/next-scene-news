@@ -59,7 +59,7 @@ export default async function HomePage() {
                 {hero.photo && <img src={hero.photo.url} alt={hero.headline} />}
               </div>
               <div className="hero-copy">
-                <div className="eyebrow">Next Scene News</div>
+                <div className="eyebrow">Flash254</div>
                 <h1>{hero.headline}</h1>
                 <p>{hero.teaser ?? (hero as any).summary}</p>
                 <div className="byline">{timeAgo(hero.publishedAt)} · Read full story →</div>
@@ -79,7 +79,7 @@ export default async function HomePage() {
                   <div className="thumb">{a.photo && <img src={a.photo.url} alt={a.headline} />}</div>
                   <div className="body">
                     <div className="source">
-                      Next Scene News · {timeAgo(a.publishedAt)}
+                     Flash254  · {timeAgo(a.publishedAt)}
                     </div>
                     <h3>{a.headline}</h3>
                     <p>{a.teaser ?? (a as any).summary}</p>
