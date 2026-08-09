@@ -110,6 +110,8 @@ export async function fetchArticlePage(articleUrl: string): Promise<ArticlePageD
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       signal: AbortSignal.timeout(8000),
     });
@@ -121,10 +123,24 @@ export async function fetchArticlePage(articleUrl: string): Promise<ArticlePageD
       html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
 
-    // Strip scripts/styles/tags to get plain readable text, then trim to a
-    // reasonable chunk - enough real material for the AI to work from
-    // without needing the entire page (nav menus, footers, ads, etc).
-    const bodyText = html
+    // Try to isolate the real article body first, so we don't dilute
+    // the extracted text with nav menus, cookie banners, and related-article
+    // links. Falls back to the whole page if no known container is found.
+    const containerPatterns = [
+      /<article[^>]*>([\s\S]*?)<\/article>/i,
+      /<div[^>]+class=["'][^"']*(entry-content|article-body|article-content|post-content|story-body)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    ];
+
+    let contentHtml = html;
+    for (const pattern of containerPatterns) {
+      const match = html.match(pattern);
+      if (match) {
+        contentHtml = match[0];
+        break;
+      }
+    }
+
+    const bodyText = contentHtml
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
