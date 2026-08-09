@@ -30,7 +30,7 @@ export default async function HomePage() {
       <header className="site-header">
   <div>
    <div className="wordmark">
-  <img src="/vox254_logo.png" alt="VOX254 - The Voice of 254" style={{ height: "90px", width: "auto" }} />
+<img src="/vox254_logo.png" alt="VOX254 - The Voice of 254" style={{ height: "140px", width: "auto" }} />
 </div>
   </div>
   <nav style={{ display: "flex", gap: "20px", fontSize: "14px", fontWeight: 600 }}>
