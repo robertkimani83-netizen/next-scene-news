@@ -113,20 +113,45 @@ export async function fetchAllJobs(): Promise<RawJob[]> {
 
   for (const feed of JOB_FEEDS) {
     try {
-      const parsed = await parser.parseURL(feed.url);
-      for (const item of parsed.items.slice(0, 10)) {
-        results.push({
-          title: item.title ?? "",
-          link: item.link ?? "",
-          sourceName: feed.name,
-          publishedAt: item.pubDate ?? new Date().toISOString(),
-          description: item.contentSnippet ?? item.content ?? "",
-        });
+      if (feed.name === "ReliefWeb Kenya") {
+        // ReliefWeb embeds raw, unescaped HTML inside its XML descriptions,
+        // which breaks strict XML parsers. Pull it apart with regex instead.
+        const res = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
+        const xml = await res.text();
+        const itemBlocks = xml.split("<item>").slice(1);
+        for (const block of itemBlocks.slice(0, 10)) {
+          const title = block.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? "";
+          const link = block.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? "";
+          const pubDate = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1];
+          const descRaw = block.match(/<description>([\s\S]*?)<\/description>/)?.[1] ?? "";
+          const descText = descRaw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+          results.push({
+            title: title.trim(),
+            link: link.trim(),
+            sourceName: feed.name,
+            publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+            description: descText,
+          });
+        }
+      } else {
+        const parsed = await parser.parseURL(feed.url);
+        for (const item of parsed.items.slice(0, 10)) {
+          results.push({
+            title: item.title ?? "",
+            link: item.link ?? "",
+            sourceName: feed.name,
+            publishedAt: item.pubDate ?? new Date().toISOString(),
+            description: item.contentSnippet ?? item.content ?? "",
+          });
+        }
       }
     } catch (err) {
       console.error(`Failed to fetch job feed ${feed.name}:`, err);
     }
   }
+
+  return results;
+}
 
   return results;
 }
