@@ -118,7 +118,7 @@ export async function fetchAllJobs(): Promise<RawJob[]> {
         // which breaks strict XML parsers. Pull it apart with regex instead.
         const res = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
         const xml = await res.text();
-        const itemBlocks = xml.split("<item>").slice(1);
+        const itemBlocks = xml.split("<item>").slice(1);console.log(`ReliefWeb response length: ${xml.length}, itemBlocks found: ${itemBlocks.length}`);
         for (const block of itemBlocks.slice(0, 10)) {
           const title = block.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? "";
           const link = block.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? "";
