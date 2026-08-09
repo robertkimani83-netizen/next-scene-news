@@ -23,6 +23,9 @@ const parser = new Parser({
 export const KENYA_FEEDS = [
   { name: "Kenyans.co.ke", url: "https://www.kenyans.co.ke/feeds/news" },
   { name: "AllAfrica Kenya", url: "https://allafrica.com/tools/headlines/rdf/kenya/headlines.rdf" },
+  { name: "Nation Africa", url: "https://nation.africa/kenya/rss.xml" },
+  { name: "Nairobi Wire", url: "https://nairobiwire.com/feed" },
+  { name: "Kenya News Agency", url: "https://www.kenyanews.go.ke/feed" },
 ];
 
 export interface RawArticle {
