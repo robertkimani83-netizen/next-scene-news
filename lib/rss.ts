@@ -27,6 +27,10 @@ export const KENYA_FEEDS = [
   { name: "Nairobi Wire", url: "https://nairobiwire.com/feed" },
   { name: "Kenya News Agency", url: "https://www.kenyanews.go.ke/feed" },
 ];
+export const JOB_FEEDS = [
+  { name: "ReliefWeb Kenya", url: "https://reliefweb.int/jobs/rss.xml?country=131" },
+  { name: "MyJobMag Kenya", url: "https://www.myjobmag.co.ke/jobsxml_by_categories.xml" },
+];
 
 export interface RawArticle {
   title: string;
