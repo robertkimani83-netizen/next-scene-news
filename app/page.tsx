@@ -28,14 +28,19 @@ export default async function HomePage() {
   return (
     <main>
       <header className="site-header">
-        <div>
-         <div className="wordmark" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <img src="/flash254_logo.png" alt="Flash254" style={{ height: "36px" }} />
-              Flash254
-            </div>
-          <div className="tagline">Habari mpya, kila saa</div>
-        </div>
-      </header>
+  <div>
+    <div className="wordmark" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+      <img src="/flash254_logo.png" alt="Flash254" style={{ height: "36px" }} />
+      Flash254
+    </div>
+    <div className="tagline">Habari mpya, kila saa</div>
+  </div>
+  <nav style={{ display: "flex", gap: "20px", fontSize: "14px", fontWeight: 600 }}>
+    <Link href="/">Home</Link>
+    <Link href="/about">About</Link>
+    <Link href="/contact">Contact</Link>
+  </nav>
+</header>
 
       {articles.length > 0 && (
         <div className="pulse-ticker">
