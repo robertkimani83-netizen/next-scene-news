@@ -152,9 +152,6 @@ export async function fetchAllJobs(): Promise<RawJob[]> {
 
   return results;
 }
-
-  return results;
-}
 // Many RSS feeds (especially WordPress-based ones) strip out images and only
 // give a one-sentence teaser, not real article text. But nearly every news
 // site still has the full picture and article body sitting in its own page -
