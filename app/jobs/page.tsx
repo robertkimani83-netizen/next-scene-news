@@ -20,7 +20,7 @@ export default async function JobsPage() {
   const jobs = await fetchAllJobs();
 
   return (
-    <main>
+   <main>
       <div style={{ padding: "24px", maxWidth: "900px", margin: "0 auto" }}>
         <Link href="/" style={{ fontSize: "14px", color: "#666666" }}>← Back to Flash254</Link>
 
