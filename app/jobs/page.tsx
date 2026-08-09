@@ -38,7 +38,7 @@ export default async function JobsPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           {jobs.map((job, i) => (
             
-              key={i}
+             <a key={i}
               href={job.link}
               target="_blank"
               rel="noopener noreferrer"
