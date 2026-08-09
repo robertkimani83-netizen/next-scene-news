@@ -1,8 +1,11 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Next Scene News — Habari Mpya",
+  title: "Next Scene News – Habari Mpya",
   description: "AI-curated Kenyan news, updated around the clock.",
+  verification: {
+    google: "ZTZTto1zIxSwEeQ",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
