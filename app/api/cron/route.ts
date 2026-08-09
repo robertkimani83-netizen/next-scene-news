@@ -33,8 +33,15 @@ export async function GET(req: NextRequest) {
   const existingLinks = new Set(existing.map((a) => a.link));
 
   const raw = await fetchAllFeeds();
-  const freshRaw = raw.filter((a) => !existingLinks.has(a.link)).slice(0, MAX_POSTS_PER_RUN);
-
+const candidates = raw.filter((a) => !existingLinks.has(a.link));
+// Shuffle so we don't always favor whichever source happens to list
+// its articles first - gives every connected source a fair chance
+// each run instead of one feed dominating every batch.
+for (let i = candidates.length - 1; i > 0; i--) {
+  const j = Math.floor(Math.random() * (i + 1));
+  [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+}
+const freshRaw = candidates.slice(0, MAX_POSTS_PER_RUN);
   const results = [];
   const errors: string[] = [];
 
