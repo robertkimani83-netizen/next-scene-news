@@ -100,7 +100,36 @@ export async function fetchAllFeeds(): Promise<RawArticle[]> {
 
   return results;
 }
+export interface RawJob {
+  title: string;
+  link: string;
+  sourceName: string;
+  publishedAt: string;
+  description: string;
+}
 
+export async function fetchAllJobs(): Promise<RawJob[]> {
+  const results: RawJob[] = [];
+
+  for (const feed of JOB_FEEDS) {
+    try {
+      const parsed = await parser.parseURL(feed.url);
+      for (const item of parsed.items.slice(0, 10)) {
+        results.push({
+          title: item.title ?? "",
+          link: item.link ?? "",
+          sourceName: feed.name,
+          publishedAt: item.pubDate ?? new Date().toISOString(),
+          description: item.contentSnippet ?? item.content ?? "",
+        });
+      }
+    } catch (err) {
+      console.error(`Failed to fetch job feed ${feed.name}:`, err);
+    }
+  }
+
+  return results;
+}
 // Many RSS feeds (especially WordPress-based ones) strip out images and only
 // give a one-sentence teaser, not real article text. But nearly every news
 // site still has the full picture and article body sitting in its own page -
