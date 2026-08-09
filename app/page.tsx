@@ -29,9 +29,10 @@ export default async function HomePage() {
     <main>
       <header className="site-header">
         <div>
-          <div className="wordmark">
-            NEXT SCENE<span> NEWS</span>
-          </div>
+         <div className="wordmark" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <img src="/flash254_logo.png" alt="Flash254" style={{ height: "36px" }} />
+              Flash254
+            </div>
           <div className="tagline">Habari mpya, kila saa</div>
         </div>
       </header>
