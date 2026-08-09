@@ -27,8 +27,8 @@ export const KENYA_FEEDS = [
   { name: "Nairobi Wire", url: "https://nairobiwire.com/feed" },
   { name: "Kenya News Agency", url: "https://www.kenyanews.go.ke/feed" },
 ];
+
 export const JOB_FEEDS = [
-  { name: "ReliefWeb Kenya", url: "https://reliefweb.int/jobs/rss.xml?country=131" },
   { name: "MyJobMag Kenya", url: "https://www.myjobmag.co.ke/jobsxml_by_categories.xml" },
 ];
 
@@ -51,9 +51,11 @@ function extractImageUrl(item: any): string | null {
   }
 
   // 2. Media RSS <media:content>
-  if (Array.isArray(item.mediaContent)) {
-    const withImage = item.mediaContent.find((m: any) => m?.$?.url);
-    if (withImage) return withImage.$.url;
+  if (item.mediaContent && Array.isArray(item.mediaContent)) {
+    for (const media of item.mediaContent) {
+      const url = media?.$?.url;
+      if (url && isImageUrl(url)) return url;
+    }
   }
 
   // 3. Media RSS <media:thumbnail>
@@ -100,6 +102,7 @@ export async function fetchAllFeeds(): Promise<RawArticle[]> {
 
   return results;
 }
+
 export interface RawJob {
   title: string;
   link: string;
@@ -111,47 +114,45 @@ export interface RawJob {
 export async function fetchAllJobs(): Promise<RawJob[]> {
   const results: RawJob[] = [];
 
-  for (const feed of JOB_FEEDS) {
-    try {
-      if (feed.name === "ReliefWeb Kenya") {
-        // ReliefWeb embeds raw, unescaped HTML inside its XML descriptions,
-        // which breaks strict XML parsers. Pull it apart with regex instead.
-        const res = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
-        const xml = await res.text();
-        const itemBlocks = xml.split("<item>").slice(1);console.log(`ReliefWeb response length: ${xml.length}, itemBlocks found: ${itemBlocks.length}`);
-        for (const block of itemBlocks.slice(0, 10)) {
-          const title = block.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? "";
-          const link = block.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? "";
-          const pubDate = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1];
-          const descRaw = block.match(/<description>([\s\S]*?)<\/description>/)?.[1] ?? "";
-          const descText = descRaw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-          results.push({
-            title: title.trim(),
-            link: link.trim(),
-            sourceName: feed.name,
-            publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
-            description: descText,
-          });
-        }
-      } else {
-        const parsed = await parser.parseURL(feed.url);
-        for (const item of parsed.items.slice(0, 10)) {
-          results.push({
-            title: item.title ?? "",
-            link: item.link ?? "",
-            sourceName: feed.name,
-            publishedAt: item.pubDate ?? new Date().toISOString(),
-            description: item.contentSnippet ?? item.content ?? "",
-          });
-        }
-      }
-    } catch (err) {
-      console.error(`Failed to fetch job feed ${feed.name}:`, err);
+  // Local Kenyan jobs from MyJobMag
+  try {
+    const feed = JOB_FEEDS.find((f) => f.name === "MyJobMag Kenya")!;
+    const parsed = await parser.parseURL(feed.url);
+    for (const item of parsed.items.slice(0, 10)) {
+      results.push({
+        title: item.title ?? "",
+        link: item.link ?? "",
+        sourceName: feed.name,
+        publishedAt: item.pubDate ?? new Date().toISOString(),
+        description: item.contentSnippet ?? item.content ?? "",
+      });
     }
+  } catch (err) {
+    console.error("Failed to fetch MyJobMag:", err);
+  }
+
+  // International remote jobs from Remotive (worldwide, no visa needed)
+  try {
+    const res = await fetch("https://remotive.com/api/remote-jobs", {
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await res.json();
+    for (const job of (data.jobs ?? []).slice(0, 10)) {
+      results.push({
+        title: `${job.title} at ${job.company_name}`,
+        link: job.url,
+        sourceName: "Remotive (Remote/Worldwide)",
+        publishedAt: job.publication_date ?? new Date().toISOString(),
+        description: (job.description ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+      });
+    }
+  } catch (err) {
+    console.error("Failed to fetch Remotive:", err);
   }
 
   return results;
 }
+
 // Many RSS feeds (especially WordPress-based ones) strip out images and only
 // give a one-sentence teaser, not real article text. But nearly every news
 // site still has the full picture and article body sitting in its own page -
