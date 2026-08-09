@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Next Scene News – Habari Mpya",
-  description: "AI-curated Kenyan news, updated around the clock.",
+  title: "Flash254 – Kenya News, As It Happens",
+description: "AI-curated Kenyan news, updated around the clock.",
   verification: {
     google: "ZTZTto1zIxSwEeQOPpfU6zHQs02iqqY-m14a3sDOfNU",
   },
