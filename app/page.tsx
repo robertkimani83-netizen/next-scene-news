@@ -29,8 +29,8 @@ export default async function HomePage() {
     <main>
       <header className="site-header">
   <div>
-    <div className="wordmark" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-  <img src="/vox254_logo.png" alt="VOX254" style={{ height: "36px" }} />
+   <div className="wordmark" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+  <img src="/vox254_logo.png" alt="VOX254" style={{ height: "60px", width: "auto" }} />
 </div>
     <div className="tagline">The Voice of 254</div>
   </div>
