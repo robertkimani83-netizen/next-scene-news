@@ -29,9 +29,7 @@ export default async function JobsPage() {
         </h1>
         <p style={{ fontSize: "15px", color: "#666666", marginBottom: "28px" }}>
           Local and international opportunities, updated regularly.
-        </p><p style={{ fontSize: "13px", color: "#cc0000" }}>
-  DEBUG: {jobs.length} total jobs — {jobs.filter(j => j.sourceName === "ReliefWeb Kenya").length} from ReliefWeb, {jobs.filter(j => j.sourceName === "MyJobMag Kenya").length} from MyJobMag
-</p>
+        </p>
 
         {jobs.length === 0 && (
           <p style={{ color: "#888888" }}>No job listings available right now. Check back soon.</p>
