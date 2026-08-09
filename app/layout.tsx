@@ -4,7 +4,7 @@ export const metadata = {
   title: "Next Scene News – Habari Mpya",
   description: "AI-curated Kenyan news, updated around the clock.",
   verification: {
-    google: "ZTZTto1zIxSwEeQ",
+    google: "ZTZTto1zIxSwEeQOPpfU6zHQs02iqqY-m14a3sDOfNU",
   },
 };
 
