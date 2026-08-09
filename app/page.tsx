@@ -30,10 +30,9 @@ export default async function HomePage() {
       <header className="site-header">
   <div>
     <div className="wordmark" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-      <img src="/flash254_logo.png" alt="Flash254" style={{ height: "36px" }} />
-      Flash254
-    </div>
-    <div className="tagline">Habari mpya, kila saa</div>
+  <img src="/vox254_logo.png" alt="VOX254" style={{ height: "36px" }} />
+</div>
+    <div className="tagline">The Voice of 254</div>
   </div>
   <nav style={{ display: "flex", gap: "20px", fontSize: "14px", fontWeight: 600 }}>
   <Link href="/">Home</Link>
@@ -66,7 +65,7 @@ export default async function HomePage() {
                 {hero.photo && <img src={hero.photo.url} alt={hero.headline} />}
               </div>
               <div className="hero-copy">
-                <div className="eyebrow">Flash254</div>
+                <div className="eyebrow">VOX254</div>
                 <h1>{hero.headline}</h1>
                 <p>{hero.teaser ?? (hero as any).summary}</p>
                 <div className="byline">{timeAgo(hero.publishedAt)} · Read full story →</div>
@@ -86,7 +85,7 @@ export default async function HomePage() {
                   <div className="thumb">{a.photo && <img src={a.photo.url} alt={a.headline} />}</div>
                   <div className="body">
                     <div className="source">
-                     Flash254  · {timeAgo(a.publishedAt)}
+                   VOX254 · {timeAgo(a.publishedAt)}
                     </div>
                     <h3>{a.headline}</h3>
                     <p>{a.teaser ?? (a as any).summary}</p>
