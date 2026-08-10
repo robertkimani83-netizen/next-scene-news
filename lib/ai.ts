@@ -31,7 +31,7 @@ Return ONLY valid JSON, no markdown fences, matching this shape:
   "facebookCaption": "1-2 sentence caption with a hook, no link (the link goes in a comment)",
   "instagramCaption": "1-2 sentence caption + 3-5 relevant hashtags, no link",
   "tiktokCaption": "short punchy caption + 3-5 relevant hashtags, no link",
-  "photoSearchTerms": "2-4 words describing the best stock photo subject for this story"
+  "photoSearchTerms": "3-6 words for a photo search - if the story centers on a named public figure (a politician, official, celebrity), lead with their full name (e.g. 'William Ruto speech', 'Edwin Sifuna press'); otherwise be specific and visual (e.g. 'Kenyan parliament building', 'hospital ward Kenya') rather than vague or abstract terms"
 }`;
 
 export async function rewriteArticle(
