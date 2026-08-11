@@ -31,10 +31,10 @@ export async function GET() {
 
       await markVideoPosted(article.id);
 
-      return NextResponse.json({
+   return NextResponse.json({
         id: article.id,
-        title: article.title,
-        text: (article as any).content || (article as any).summary || article.title,
+        title: article.headline,
+        text: article.article,
         imageUrl: article.photo?.url || null,
       });
     }
