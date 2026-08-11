@@ -35,7 +35,7 @@ export async function GET() {
         id: article.id,
         title: article.headline,
         text: article.article,
-        imageUrl: article.photo?.url || null,
+       imageUrls: [article.photo?.url].filter(Boolean), 
       });
     }
 
