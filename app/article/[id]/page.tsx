@@ -25,9 +25,8 @@ export default async function ArticlePage({ params }: { params: { id: string } }
       <header className="site-header">
         <Link href="/" style={{ textDecoration: "none" }}>
           <div className="wordmark">
-            NEXT SCENE<span> NEWS</span>
+            <img src="/vox254_logo.png" alt="VOX254 - The Voice of 254" style={{ height: "40px", width: "auto" }} />
           </div>
-          <div className="tagline">Habari mpya, kila saa</div>
         </Link>
       </header>
 
@@ -54,7 +53,7 @@ export default async function ArticlePage({ params }: { params: { id: string } }
         </div>
 
         <Link href="/" className="back-link">
-          ← Back to Next Scene News
+          ← Back to VOX254
         </Link>
       </article>
     </main>
