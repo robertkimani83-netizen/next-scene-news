@@ -1,6 +1,7 @@
 import { getArticleById } from "@/lib/store";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import ArticleImage from "@/components/ArticleImage";
 
 export const dynamic = "force-dynamic";
 
@@ -35,11 +36,9 @@ export default async function ArticlePage({ params }: { params: { id: string } }
         <h1 className="article-title">{article.headline}</h1>
         <div className="byline">{timeAgo(article.publishedAt)}</div>
 
-        {article.photo && (
-          <div className="article-photo">
-            <img src={article.photo.url} alt={article.headline} />
-          </div>
-        )}
+        <div className="article-photo">
+          <ArticleImage photo={article.photo} alt={article.headline} aspectRatio="16/9" watermarkSize="large" />
+        </div>
 
         <div className="article-body">
           {paragraphs.map((p, i) => (
