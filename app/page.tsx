@@ -1,5 +1,6 @@
 import { loadArticles } from "@/lib/store";
 import Link from "next/link";
+import ArticleImage from "@/components/ArticleImage";
 
 // This page reads live data from the database on every visit, so it
 // should never be pre-baked at build time - force fresh rendering.
@@ -61,7 +62,7 @@ export default async function HomePage() {
           <Link href={`/article/${hero.id}`} style={{ textDecoration: "none", color: "inherit" }}>
             <section className="hero">
               <div className="hero-media">
-                {hero.photo && <img src={hero.photo.url} alt={hero.headline} />}
+               <ArticleImage photo={hero.photo} alt={hero.headline} aspectRatio="16/9" watermarkSize="large" />
               </div>
               <div className="hero-copy">
                 <div className="eyebrow">VOX254</div>
@@ -81,7 +82,7 @@ export default async function HomePage() {
                 style={{ textDecoration: "none", color: "inherit" }}
               >
                 <article className="story-card">
-                  <div className="thumb">{a.photo && <img src={a.photo.url} alt={a.headline} />}</div>
+                 <div className="thumb"><ArticleImage photo={a.photo} alt={a.headline} aspectRatio="16/9" /></div>
                   <div className="body">
                     <div className="source">
                    VOX254 · {timeAgo(a.publishedAt)}
