@@ -10,7 +10,7 @@ async function getArticle() {
 }
 
 async function postToFacebook(article) {
-  const caption = `${article.title}\n\n${article.teaser}\n\nRead full story: ${article.articleUrl}`;
+  const caption = `${article.title}\n\n${article.teaser}`;
 
   const params = new URLSearchParams({
     url: article.imageUrl,
@@ -25,6 +25,17 @@ async function postToFacebook(article) {
 
   const data = await res.json();
   if (!res.ok) throw new Error('Facebook post failed: ' + JSON.stringify(data));
+
+  if (data.post_id) {
+    await fetch(`https://graph.facebook.com/v26.0/${data.post_id}/comments`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        message: `Read the full story here: ${article.articleUrl}`,
+        access_token: PAGE_ACCESS_TOKEN,
+      }),
+    });
+  }
+
   return data;
 }
 
@@ -39,12 +50,13 @@ async function main() {
     }
 
     console.log('Posting:', article.title);
-    const result = await postToFacebook(article);
-    console.log('Posted! Post ID:', result.post_id || result.id);
+    try {
+      const result = await postToFacebook(article);
+      console.log('Posted! Post ID:', result.id);
+    } catch (err) {
+      console.log('FAILED:', err.message);
+    }
   }
 }
 
-main().catch((err) => {
-  console.error('FAILED:', err);
-  process.exit(1);
-});
+main();
