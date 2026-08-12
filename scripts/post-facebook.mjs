@@ -26,14 +26,20 @@ async function postToFacebook(article) {
   const data = await res.json();
   if (!res.ok) throw new Error('Facebook post failed: ' + JSON.stringify(data));
 
+  console.log('Photo post response:', JSON.stringify(data));
+
   if (data.post_id) {
-    await fetch(`https://graph.facebook.com/v26.0/${data.post_id}/comments`, {
+    const commentRes = await fetch(`https://graph.facebook.com/v26.0/${data.post_id}/comments`, {
       method: 'POST',
       body: new URLSearchParams({
         message: `Read the full story here: ${article.articleUrl}`,
         access_token: PAGE_ACCESS_TOKEN,
       }),
     });
+    const commentData = await commentRes.json();
+    console.log('Comment response:', JSON.stringify(commentData));
+  } else {
+    console.log('No post_id in response — skipping comment.');
   }
 
   return data;
