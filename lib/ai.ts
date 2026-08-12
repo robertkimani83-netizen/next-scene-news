@@ -11,6 +11,13 @@ export interface RewrittenArticle {
   instagramCaption: string;
   tiktokCaption: string;
   photoSearchTerms: string; // keywords to find a matching photo, used only if no real photo was found
+  entities: {
+    people: string[]; // named people mentioned, main subject first
+    places: string[]; // specific places (city, county, neighborhood)
+    institutions: string[]; // named organizations, government bodies, companies
+    event: string; // short description of the specific event/incident, empty string if none
+    country: string; // country the story is about, default "Kenya" if unclear
+  };
 }
 
 const SYSTEM_PROMPT = `You are an editor for a Kenyan news site. You are given a headline, a short wire
@@ -31,7 +38,14 @@ Return ONLY valid JSON, no markdown fences, matching this shape:
   "facebookCaption": "1-2 sentence caption with a hook, no link (the link goes in a comment)",
   "instagramCaption": "1-2 sentence caption + 3-5 relevant hashtags, no link",
   "tiktokCaption": "short punchy caption + 3-5 relevant hashtags, no link",
-  "photoSearchTerms": "3-6 words for a photo search - if the story centers on a named public figure (a politician, official, celebrity), lead with their full name (e.g. 'William Ruto speech', 'Edwin Sifuna press'); otherwise be specific and visual (e.g. 'Kenyan parliament building', 'hospital ward Kenya') rather than vague or abstract terms"
+  "photoSearchTerms": "3-6 words for a photo search - if the story centers on a named public figure (a politician, official, celebrity), lead with their full name (e.g. 'William Ruto speech', 'Edwin Sifuna press'); otherwise be specific and visual (e.g. 'Kenyan parliament building', 'hospital ward Kenya') rather than vague or abstract terms",
+  "entities": {
+    "people": ["full name of the main person this story is about, then any other named people, most important first - empty array if no named person is central to the story"],
+    "places": ["specific place names mentioned - a city, county, neighborhood, or landmark - most specific/important first, empty array if none"],
+    "institutions": ["full official name of any named organization, government body, company, or agency mentioned - empty array if none"],
+    "event": "a short 2-6 word description of the specific event or incident this story is about, e.g. 'helicopter crash', 'budget debate', 'football match' - empty string if the story isn't about a specific event",
+    "country": "the country this story is about - default to Kenya if unclear from context"
+  }
 }`;
 
 export async function rewriteArticle(
