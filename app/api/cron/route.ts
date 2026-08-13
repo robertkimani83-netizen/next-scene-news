@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
       // If no real photo was found, generate a branded poster image using
       // the article's own headline and category - this becomes the actual
       // photo (a real, postable file), not just an on-page CSS placeholder.
+      // Still used for on-site display via ArticleImage.tsx.
       if (!photo.url) {
         photo = {
           ...photo,
@@ -92,31 +93,30 @@ export async function GET(req: NextRequest) {
         ...rewritten,
       };
 
-      if (photo.url) {
-        try {
-          await postToFacebook(photo.url, rewritten.facebookCaption, ownArticleUrl);
-          stored.postedTo.facebook = true;
-        } catch (e) {
-          console.error("FB post failed:", e);
-        }
+      // Every post now goes through the branded card generator, whether
+      // there's a real matched photo (K24-style overlay) or not (gradient
+      // poster) - so posting no longer depends on whether photo.url exists.
+      const socialImageUrl = `${siteUrl}/api/og/${id}`;
 
-        try {
-          await postToInstagram(photo.url, rewritten.instagramCaption, ownArticleUrl);
-          stored.postedTo.instagram = true;
-        } catch (e) {
-          console.error("IG post failed:", e);
-        }
+      try {
+        await postToFacebook(socialImageUrl, rewritten.facebookCaption, ownArticleUrl);
+        stored.postedTo.facebook = true;
+      } catch (e) {
+        console.error("FB post failed:", e);
+      }
 
-        try {
-          await postToTikTok(photo.url, rewritten.tiktokCaption, ownArticleUrl);
-          stored.postedTo.tiktok = true;
-        } catch (e) {
-          console.error("TikTok post failed:", e);
-        }
-      } else {
-        console.log(
-          `No usable photo found for "${rawArticle.title}" - skipping social posts, article still saved to site.`
-        );
+      try {
+        await postToInstagram(socialImageUrl, rewritten.instagramCaption, ownArticleUrl);
+        stored.postedTo.instagram = true;
+      } catch (e) {
+        console.error("IG post failed:", e);
+      }
+
+      try {
+        await postToTikTok(socialImageUrl, rewritten.tiktokCaption, ownArticleUrl);
+        stored.postedTo.tiktok = true;
+      } catch (e) {
+        console.error("TikTok post failed:", e);
       }
 
       await addArticle(stored);
