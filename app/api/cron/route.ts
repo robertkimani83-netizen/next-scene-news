@@ -13,9 +13,6 @@ import { postToTikTok } from "@/lib/social/tiktok";
 // original source) -> save it to the site. Designed to run on a schedule
 // (see vercel.json) rather than by a person clicking a button.
 
-// How many NEW stories to process per run. Keep this low (2-3) so you don't
-// blow through free-tier posting limits, spam your followers, or take too
-// long fetching full article pages within one request.
 const MAX_POSTS_PER_RUN = 3;
 
 export async function GET(req: NextRequest) {
@@ -34,9 +31,6 @@ export async function GET(req: NextRequest) {
 
   const raw = await fetchAllFeeds();
   const candidates = raw.filter((a) => !existingLinks.has(a.link));
-  // Shuffle so we don't always favor whichever source happens to list
-  // its articles first - gives every connected source a fair chance
-  // each run instead of one feed dominating every batch.
   for (let i = candidates.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
@@ -47,23 +41,14 @@ export async function GET(req: NextRequest) {
 
   for (const rawArticle of freshRaw) {
     try {
-      // One fetch of the article's own page gives us both real article
-      // text (for a genuinely fuller AI rewrite) and a candidate photo.
       const pageData = await fetchArticlePage(rawArticle.link);
-
       const rewritten = await rewriteArticle(rawArticle, pageData.bodyText);
 
-      // Search free sources using the article's extracted entities - always
-      // runs, never skipped just because an og:image exists.
       const searchedPhoto = await findMatchingPhoto(
         rewritten.photoSearchTerms,
         rewritten.entities
       );
 
-      // The article's own og:image (or feed-embedded image) is treated as
-      // just another candidate now, scored the same way, instead of being
-      // trusted automatically. This is what stops a wrong logo/crest image
-      // from winning just because it happened to be the page's preview image.
       const realPhotoUrl = rawArticle.realImageUrl ?? pageData.imageUrl;
       let photo: MatchedPhoto = searchedPhoto;
 
@@ -84,6 +69,19 @@ export async function GET(req: NextRequest) {
       const id = crypto.randomUUID();
       const ownArticleUrl = `${siteUrl}/article/${id}`;
 
+      // If no real photo was found, generate a branded poster image using
+      // the article's own headline and category - this becomes the actual
+      // photo (a real, postable file), not just an on-page CSS placeholder.
+      if (!photo.url) {
+        photo = {
+          ...photo,
+          url: `${siteUrl}/api/og/${id}`,
+          photographer: "VOX254",
+          photographerUrl: siteUrl,
+          credit: "VOX254",
+        };
+      }
+
       const stored: StoredArticle = {
         id,
         link: rawArticle.link,
@@ -94,12 +92,6 @@ export async function GET(req: NextRequest) {
         ...rewritten,
       };
 
-      // Social posts link back to OUR OWN article page, not the original
-      // source - this is what keeps readers on VOX254. Only attempt this
-      // when we actually have a real, hosted image URL to hand to each
-      // platform's API - the branded VOX254 placeholder (used when every
-      // source came up empty) is a website-only visual, not a real file,
-      // so there's nothing to post in that case.
       if (photo.url) {
         try {
           await postToFacebook(photo.url, rewritten.facebookCaption, ownArticleUrl);
