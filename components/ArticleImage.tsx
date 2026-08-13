@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { MatchedPhoto, PhotoCategory } from "@/lib/photos";
 
-const CATEGORY_STYLES: Record<
+const CATEGORY_STYLES: Record
   PhotoCategory,
   { background: string; label: string }
 > = {
@@ -35,6 +35,7 @@ export default function ArticleImage({
   const showFallback = !photo || !photo.url || failed;
   const category = photo?.fallbackCategory ?? "news";
   const style = CATEGORY_STYLES[category];
+  const isLarge = watermarkSize === "large";
 
   const containerStyle: React.CSSProperties = {
     position: "relative",
@@ -46,9 +47,9 @@ export default function ArticleImage({
 
   const watermarkStyle: React.CSSProperties = {
     position: "absolute",
-    bottom: watermarkSize === "large" ? "16px" : "8px",
-    right: watermarkSize === "large" ? "16px" : "8px",
-    width: watermarkSize === "large" ? "72px" : "44px",
+    bottom: isLarge ? "16px" : "8px",
+    right: isLarge ? "16px" : "8px",
+    width: isLarge ? "72px" : "44px",
     height: "auto",
     opacity: 0.85,
     pointerEvents: "none",
@@ -66,8 +67,8 @@ export default function ArticleImage({
             alignItems: "center",
             justifyContent: "center",
             textAlign: "center",
-            padding: "8% 10%",
-            gap: "16px",
+            padding: isLarge ? "6% 10%" : "10% 8%",
+            gap: isLarge ? "14px" : "8px",
             background:
               "radial-gradient(circle at 30% 20%, rgba(255,255,255,0.06), transparent 55%)",
           }}
@@ -75,14 +76,18 @@ export default function ArticleImage({
           <img
             src="/vox254_icon.png"
             alt="VOX254"
-            style={{ width: "40px", height: "auto", opacity: 0.95 }}
+            style={{
+              width: isLarge ? "40px" : "26px",
+              height: "auto",
+              opacity: 0.95,
+            }}
           />
           <span
             style={{
               color: "#f5c518",
-              fontSize: "12px",
+              fontSize: isLarge ? "12px" : "10px",
               fontWeight: 800,
-              letterSpacing: "2px",
+              letterSpacing: "1.5px",
               textTransform: "uppercase",
             }}
           >
@@ -91,13 +96,13 @@ export default function ArticleImage({
           <span
             style={{
               color: "#ffffff",
-              fontSize: "clamp(16px, 3.2vw, 26px)",
+              fontSize: isLarge ? "24px" : "14px",
               fontWeight: 800,
               lineHeight: 1.3,
-              maxWidth: "90%",
+              maxWidth: "92%",
               overflow: "hidden",
               display: "-webkit-box",
-              WebkitLineClamp: 4,
+              WebkitLineClamp: isLarge ? 4 : 3,
               WebkitBoxOrient: "vertical",
             }}
           >
