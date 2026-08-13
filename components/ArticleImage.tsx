@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { MatchedPhoto, PhotoCategory } from "@/lib/photos";
 
-const CATEGORY_STYLES: Record
+const CATEGORY_STYLES: Record<
   PhotoCategory,
   { background: string; label: string }
 > = {
