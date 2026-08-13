@@ -3,16 +3,16 @@
 import { useState } from "react";
 import type { MatchedPhoto, PhotoCategory } from "@/lib/photos";
 
-const CATEGORY_STYLES: Record<
+const CATEGORY_STYLES: Record
   PhotoCategory,
   { background: string; label: string }
 > = {
-  politics: { background: "#7a1f2b", label: "VOX254 POLITICS" },
-  business: { background: "#1f3a5f", label: "VOX254 BUSINESS" },
-  sports: { background: "#1f5f3a", label: "VOX254 SPORTS" },
-  crime: { background: "#2b2b2b", label: "VOX254 CRIME" },
-  kenya: { background: "#111111", label: "VOX254 KENYA" },
-  news: { background: "#111111", label: "VOX254 NEWS" },
+  politics: { background: "#7a1f2b", label: "POLITICS" },
+  business: { background: "#1f3a5f", label: "BUSINESS" },
+  sports: { background: "#1f5f3a", label: "SPORTS" },
+  crime: { background: "#2b2b2b", label: "CRIME" },
+  kenya: { background: "#111111", label: "KENYA" },
+  news: { background: "#111111", label: "NEWS" },
 };
 
 interface ArticleImageProps {
@@ -62,26 +62,46 @@ export default function ArticleImage({
             position: "absolute",
             inset: 0,
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            flexDirection: "column",
-            gap: "8px",
+            textAlign: "center",
+            padding: "8% 10%",
+            gap: "16px",
+            background:
+              "radial-gradient(circle at 30% 20%, rgba(255,255,255,0.06), transparent 55%)",
           }}
         >
           <img
             src="/vox254_icon.png"
             alt="VOX254"
-            style={{ width: "48px", height: "auto", opacity: 0.9 }}
+            style={{ width: "40px", height: "auto", opacity: 0.95 }}
           />
           <span
             style={{
-              color: "#ffffff",
-              fontSize: "13px",
-              fontWeight: 700,
-              letterSpacing: "1px",
+              color: "#f5c518",
+              fontSize: "12px",
+              fontWeight: 800,
+              letterSpacing: "2px",
+              textTransform: "uppercase",
             }}
           >
-            {style.label}
+            VOX254 {style.label}
+          </span>
+          <span
+            style={{
+              color: "#ffffff",
+              fontSize: "clamp(16px, 3.2vw, 26px)",
+              fontWeight: 800,
+              lineHeight: 1.3,
+              maxWidth: "90%",
+              overflow: "hidden",
+              display: "-webkit-box",
+              WebkitLineClamp: 4,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {alt}
           </span>
         </div>
       </div>
