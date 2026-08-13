@@ -31,7 +31,7 @@ export default async function ArticlePage({ params }: { params: { id: string } }
       </header>
 
       <article className="article-page">
-        <div className="eyebrow">{article.sourceName}</div>
+      <div className="eyebrow">VOX254</div>
         <h1 className="article-title">{article.headline}</h1>
         <div className="byline">{timeAgo(article.publishedAt)}</div>
 
