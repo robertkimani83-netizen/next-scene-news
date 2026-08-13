@@ -3,7 +3,7 @@ import { getArticleById } from "@/lib/store";
 
 export const runtime = "edge";
 
-const CATEGORY_STYLES: Record<
+const CATEGORY_STYLES: Record
   string,
   { from: string; to: string; label: string }
 > = {
@@ -28,6 +28,153 @@ export async function GET(
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(req.url).origin;
   const logoUrl = `${siteUrl}/vox254_icon.png`;
 
+  // A "real" photo is one that isn't already our own generated card
+  // (guards against ever pointing this route at itself).
+  const realPhotoUrl =
+    article?.photo?.url && !article.photo.url.includes("/api/og/")
+      ? article.photo.url
+      : null;
+
+  const dateLabel = article?.publishedAt
+    ? new Date(article.publishedAt).toLocaleDateString("en-KE", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
+
+  // ---- K24-STYLE CARD: real photo + bottom banner ----
+  if (realPhotoUrl) {
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            width: "1200px",
+            height: "675px",
+            display: "flex",
+            position: "relative",
+            fontFamily: "sans-serif",
+          }}
+        >
+          <img
+            src={realPhotoUrl}
+            width="1200"
+            height="675"
+            style={{ position: "absolute", inset: 0, objectFit: "cover" }}
+          />
+
+          {/* darken bottom for text legibility */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: "260px",
+              display: "flex",
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0) 100%)",
+            }}
+          />
+
+          {/* small logo badge, top-left */}
+          <div
+            style={{
+              position: "absolute",
+              top: "28px",
+              left: "28px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              background: "rgba(0,0,0,0.45)",
+              borderRadius: "10px",
+              padding: "8px 14px",
+            }}
+          >
+            <img src={logoUrl} width="28" height="28" style={{ opacity: 0.95 }} />
+            <span
+              style={{
+                color: "#ffffff",
+                fontSize: "18px",
+                fontWeight: 800,
+                letterSpacing: "1px",
+              }}
+            >
+              VOX254
+            </span>
+          </div>
+
+          {/* category ribbon, top-right */}
+          <div
+            style={{
+              position: "absolute",
+              top: "28px",
+              right: "28px",
+              display: "flex",
+              background: "#f5c518",
+              color: "#111111",
+              fontSize: "15px",
+              fontWeight: 800,
+              letterSpacing: "2px",
+              padding: "8px 20px",
+              borderRadius: "999px",
+            }}
+          >
+            {style.label}
+          </div>
+
+          {/* K24-style bottom banner: yellow accent + headline + date */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: "flex",
+              flexDirection: "column",
+              padding: "0 48px 32px 48px",
+              gap: "14px",
+            }}
+          >
+            <div
+              style={{
+                width: "70px",
+                height: "6px",
+                background: "#f5c518",
+                display: "flex",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                color: "#ffffff",
+                fontSize: "42px",
+                fontWeight: 800,
+                lineHeight: 1.2,
+                maxWidth: "1050px",
+              }}
+            >
+              {headline}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                color: "rgba(255,255,255,0.75)",
+                fontSize: "16px",
+                fontWeight: 600,
+                letterSpacing: "1px",
+              }}
+            >
+              VOX254 — The Voice of 254 {dateLabel ? `· ${dateLabel}` : ""}
+            </div>
+          </div>
+        </div>
+      ),
+      { width: 1200, height: 675 }
+    );
+  }
+
+  // ---- FALLBACK CARD: no real photo, use the branded gradient poster ----
   return new ImageResponse(
     (
       <div
