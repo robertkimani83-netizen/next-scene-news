@@ -99,3 +99,401 @@ export function generateSearchQueries(
   }
 
   if (fallbackTerms) {
+    queries.push(fallbackTerms);
+  }
+
+  return Array.from(new Set(queries)).slice(0, 4);
+}
+
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+
+function textIncludes(haystack: string, needle: string): boolean {
+  if (!needle) return false;
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+const GENERIC_STOCK_WORDS = [
+  "stock photo",
+  "generic",
+  "istock",
+  "shutterstock",
+  "royalty free",
+];
+
+export function scoreCandidate(
+  candidate: Candidate,
+  entities: ArticleEntities | null,
+  fallbackTerms: string
+): ScoreResult {
+  const text = candidate.title.toLowerCase();
+  let score = 0;
+  let hasSpecificMatch = false;
+
+  if (entities?.people?.[0] && textIncludes(text, entities.people[0])) {
+    score += 50;
+    hasSpecificMatch = true;
+  }
+  if (entities?.people?.[1] && textIncludes(text, entities.people[1])) {
+    score += 35;
+    hasSpecificMatch = true;
+  }
+  if (
+    entities?.institutions?.[0] &&
+    textIncludes(text, entities.institutions[0])
+  ) {
+    score += 40;
+    hasSpecificMatch = true;
+  }
+
+  const place = entities?.places?.[0];
+  const country = entities?.country;
+  const placeIsJustCountry =
+    !!place && !!country && place.toLowerCase() === country.toLowerCase();
+
+  if (place && !placeIsJustCountry && textIncludes(text, place)) {
+    score += 30;
+    hasSpecificMatch = true;
+  }
+  if (entities?.event && textIncludes(text, entities.event)) {
+    score += 30;
+    hasSpecificMatch = true;
+  }
+
+  // Country match alone is never a "specific" signal - it's too generic
+  // (a vulture photo tagged "Kenya" is not a rice-controversy photo).
+  if (country && textIncludes(text, country)) {
+    score += 15;
+  } else if (textIncludes(text, "kenya")) {
+    score += 15;
+  }
+
+  const fallbackWords = fallbackTerms
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 3);
+  const matchedWords = fallbackWords.filter((w) => text.includes(w));
+  if (matchedWords.length >= 3) {
+    score += 15;
+    hasSpecificMatch = true;
+  }
+
+  if (GENERIC_STOCK_WORDS.some((w) => text.includes(w))) {
+    score -= 30;
+  }
+
+  return { score, hasSpecificMatch };
+}
+
+// ---------------------------------------------------------------------------
+// Source: Wikimedia Commons (free, keyless)
+// ---------------------------------------------------------------------------
+
+async function searchWikimedia(query: string): Promise<Candidate[]> {
+  try {
+    const url =
+      `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
+      `&gsrnamespace=6&gsrsearch=${encodeURIComponent(query)}` +
+      `&gsrlimit=${MAX_CANDIDATES_PER_SOURCE}&prop=imageinfo` +
+      `&iiprop=url|extmetadata|size&iiurlwidth=1200&format=json&origin=*`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("Wikimedia lookup failed:", await res.text());
+      return [];
+    }
+
+    const data = await res.json();
+    const pages = data.query?.pages;
+    if (!pages) return [];
+
+    const candidates: Candidate[] = [];
+    for (const key of Object.keys(pages)) {
+      const page = pages[key];
+      const info = page.imageinfo?.[0];
+      if (!info) continue;
+
+      const width = info.width || 0;
+      const height = info.height || 0;
+      if (width < 400 || height < 300) continue;
+
+      const meta = info.extmetadata || {};
+      const licenseShort = meta.LicenseShortName?.value || null;
+      const artist = (meta.Artist?.value || "Wikimedia Commons").replace(
+        /<[^>]+>/g,
+        ""
+      );
+      const description = (meta.ImageDescription?.value || "").replace(
+        /<[^>]+>/g,
+        ""
+      );
+
+      candidates.push({
+        url: info.thumburl || info.url,
+        photographer: artist || "Wikimedia Commons contributor",
+        photographerUrl: info.descriptionurl || url,
+        source: "Wikimedia Commons",
+        license: licenseShort,
+        title: `${page.title} ${description}`,
+        searchQuery: query,
+      });
+    }
+    return candidates;
+  } catch (err) {
+    console.error("Wikimedia request failed:", err);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Source: Openverse (free, keyless)
+// ---------------------------------------------------------------------------
+
+async function searchOpenverse(query: string): Promise<Candidate[]> {
+  try {
+    const url =
+      `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}` +
+      `&page_size=${MAX_CANDIDATES_PER_SOURCE}&license_type=commercial,modification`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("Openverse lookup failed:", await res.text());
+      return [];
+    }
+
+    const data = await res.json();
+    const results = data.results || [];
+
+    return results.map((item: any) => ({
+      url: item.url,
+      photographer: item.creator || "Openverse contributor",
+      photographerUrl: item.creator_url || item.foreign_landing_url || item.url,
+      source: "Openverse",
+      license: item.license ? item.license.toUpperCase() : null,
+      title: `${item.title || ""} ${(item.tags || [])
+        .map((t: any) => t.name)
+        .join(" ")}`,
+      searchQuery: query,
+    }));
+  } catch (err) {
+    console.error("Openverse request failed:", err);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Source: Pexels (free tier, existing key)
+// ---------------------------------------------------------------------------
+
+async function searchPexels(query: string): Promise<Candidate[]> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) {
+    console.warn("PEXELS_API_KEY not set - skipping Pexels photo search");
+    return [];
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(
+        query
+      )}&per_page=${MAX_CANDIDATES_PER_SOURCE}&orientation=landscape`,
+      { headers: { Authorization: apiKey } }
+    );
+
+    if (!res.ok) {
+      console.error("Pexels lookup failed:", await res.text());
+      return [];
+    }
+
+    const data = await res.json();
+    const photos = data.photos || [];
+
+    return photos.map((photo: any) => ({
+      url: photo.src.large,
+      photographer: photo.photographer,
+      photographerUrl: photo.photographer_url,
+      source: "Pexels",
+      license: "Pexels License",
+      title: photo.alt || "",
+      searchQuery: query,
+    }));
+  } catch (err) {
+    console.error("Pexels request failed:", err);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Source: Unsplash (free tier, existing key)
+// ---------------------------------------------------------------------------
+
+async function searchUnsplash(query: string): Promise<Candidate[]> {
+  const apiKey = process.env.UNSPLASH_API_KEY;
+  if (!apiKey) {
+    console.warn("UNSPLASH_API_KEY not set - skipping Unsplash photo search");
+    return [];
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(
+        query
+      )}&per_page=${MAX_CANDIDATES_PER_SOURCE}&orientation=landscape`,
+      { headers: { Authorization: `Client-ID ${apiKey}` } }
+    );
+
+    if (!res.ok) {
+      console.error("Unsplash lookup failed:", await res.text());
+      return [];
+    }
+
+    const data = await res.json();
+    const results = data.results || [];
+
+    return results.map((photo: any) => ({
+      url: photo.urls.regular,
+      photographer: photo.user.name,
+      photographerUrl: photo.user.links.html,
+      source: "Unsplash",
+      license: "Unsplash License",
+      title: `${photo.description || ""} ${photo.alt_description || ""}`,
+      searchQuery: query,
+    }));
+  } catch (err) {
+    console.error("Unsplash request failed:", err);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Orchestration
+// ---------------------------------------------------------------------------
+
+function buildCredit(c: Candidate): string {
+  if (c.source === "Wikimedia Commons" || c.source === "Openverse") {
+    return `Photo: ${c.photographer} / ${c.source}${
+      c.license ? `, ${c.license}` : ""
+    }`;
+  }
+  return `Photo: ${c.photographer} / ${c.source}`;
+}
+
+function toMatchedPhoto(c: Candidate, score: number): MatchedPhoto {
+  return {
+    url: c.url,
+    photographer: c.photographer,
+    photographerUrl: c.photographerUrl,
+    source: c.source,
+    license: c.license,
+    credit: buildCredit(c),
+    searchQuery: c.searchQuery,
+    relevanceScore: score,
+    isFallback: false,
+    fallbackCategory: null,
+  };
+}
+
+// Validates a candidate that came from elsewhere (e.g. the article's own
+// og:image) using the same scoring system as everything else, instead of
+// trusting it blindly. Used by the cron route so a wrong og:image (a logo,
+// an unrelated stock photo) can no longer bypass scoring entirely.
+export function scoreExternalCandidate(
+  url: string,
+  title: string,
+  sourceName: string,
+  sourceUrl: string,
+  entities: ArticleEntities | null,
+  fallbackTerms: string
+): MatchedPhoto {
+  const candidate: Candidate = {
+    url,
+    photographer: sourceName,
+    photographerUrl: sourceUrl,
+    source: "Original",
+    license: null,
+    title,
+    searchQuery: fallbackTerms,
+  };
+  const result = scoreCandidate(candidate, entities, fallbackTerms);
+  return toMatchedPhoto(candidate, result.score);
+}
+
+// Maps a story's category/topic to one of the branded fallback identities.
+// Kept intentionally simple (keyword match) since this only decides which
+// branded placeholder style to show, not which real photo to use.
+export function detectFallbackCategory(
+  entities: ArticleEntities | null,
+  fallbackTerms: string
+): PhotoCategory {
+  const text = `${entities?.event || ""} ${fallbackTerms}`.toLowerCase();
+
+  if (/(election|president|parliament|senator|mp |governor|cabinet|policy)/.test(text)) {
+    return "politics";
+  }
+  if (/(economy|market|business|trade|shilling|bank|investment|company)/.test(text)) {
+    return "business";
+  }
+  if (/(football|rugby|athletics|match|tournament|olympic|sport)/.test(text)) {
+    return "sports";
+  }
+  if (/(murder|robbery|arrest|police|crime|court|jail|fraud)/.test(text)) {
+    return "crime";
+  }
+  if (entities?.country === "Kenya" || text.includes("kenya")) {
+    return "kenya";
+  }
+  return "news";
+}
+
+export async function findMatchingPhoto(
+  fallbackTerms: string,
+  entities: ArticleEntities | null = null
+): Promise<MatchedPhoto> {
+  const queries = generateSearchQueries(entities, fallbackTerms);
+
+  const searchPromises: Promise<Candidate[]>[] = [];
+  for (const query of queries) {
+    searchPromises.push(searchWikimedia(query));
+    searchPromises.push(searchOpenverse(query));
+    searchPromises.push(searchPexels(query));
+    searchPromises.push(searchUnsplash(query));
+  }
+
+  const results = await Promise.all(searchPromises);
+  const allCandidates = results.flat();
+
+  if (allCandidates.length > 0) {
+    const scored = allCandidates.map((c) => {
+      const result = scoreCandidate(c, entities, fallbackTerms);
+      return {
+        candidate: c,
+        score: result.score,
+        hasSpecificMatch: result.hasSpecificMatch,
+      };
+    });
+    scored.sort((a, b) => b.score - a.score);
+
+    const best = scored[0];
+    // Require BOTH a high enough score AND at least one specific signal -
+    // generic country/word overlap alone is never enough on its own.
+    if (best.score >= MIN_RELEVANCE_SCORE && best.hasSpecificMatch) {
+      return toMatchedPhoto(best.candidate, best.score);
+    }
+  }
+
+  // Nothing usable cleared the bar - branded category poster instead.
+  const category = detectFallbackCategory(entities, fallbackTerms);
+  return {
+    url: "",
+    photographer: "VOX254",
+    photographerUrl: "",
+    source: "VOX254",
+    license: null,
+    credit: "VOX254",
+    searchQuery: fallbackTerms,
+    relevanceScore: 0,
+    isFallback: true,
+    fallbackCategory: category,
+  };
+}
