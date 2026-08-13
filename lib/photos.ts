@@ -5,11 +5,10 @@
 // entities (person / place / institution / event) -> search Wikimedia
 // Commons, Openverse, Pexels and Unsplash in parallel -> score every
 // candidate against the entities -> keep the best one if it clears the
-// minimum relevance bar -> otherwise fall through a hierarchy of
-// progressively looser (but still relevant) options -> category-branded
-// placeholder as the last resort. Never returns null - the caller always
-// gets *something* to display, but low-quality/unrelated photos never win
-// out over an honest fallback.
+// minimum relevance bar -> otherwise fall through to a branded VOX254
+// poster showing the story's own headline. Never returns null - the caller
+// always gets *something* to display, but low-quality/unrelated photos
+// never win out over an honest branded fallback.
 //
 // All four sources are free and keyless or free-tier: Wikimedia Commons and
 // Openverse need no API key at all; Pexels/Unsplash use the existing keys.
@@ -54,8 +53,8 @@ interface Candidate {
 }
 
 // Minimum score a candidate must clear to be used as the real article photo.
-// Below this we treat it as "not actually a match" and fall through the
-// hierarchy instead of using a weak/coincidental hit.
+// Below this we treat it as "not actually a match" and fall through to the
+// branded poster instead of using a weak/coincidental hit.
 const MIN_RELEVANCE_SCORE = 30;
 
 const MAX_CANDIDATES_PER_SOURCE = 5;
@@ -64,9 +63,6 @@ const MAX_CANDIDATES_PER_SOURCE = 5;
 // Query generation
 // ---------------------------------------------------------------------------
 
-// Builds a short, ordered list of specific search queries from the article's
-// entities. Most specific / most important first, since we score every
-// candidate but stop searching once we have enough good candidates.
 export function generateSearchQueries(
   entities: ArticleEntities | null,
   fallbackTerms: string
@@ -95,15 +91,10 @@ export function generateSearchQueries(
     queries.push(`${entities.event} ${country}`);
   }
 
-  // Always keep the AI's own search terms as a query too - it already does
-  // a reasonable job and acts as a safety net if entity extraction missed
-  // something.
   if (fallbackTerms) {
     queries.push(fallbackTerms);
   }
 
-  // De-dupe while preserving order, cap at 4 queries so we don't blow up
-  // request counts on Vercel.
   return Array.from(new Set(queries)).slice(0, 4);
 }
 
@@ -156,8 +147,6 @@ export function scoreCandidate(
     score += 15;
   }
 
-  // Fallback search terms overlap - smaller bonus, catches partial matches
-  // entity extraction may have missed.
   const fallbackWords = fallbackTerms
     .toLowerCase()
     .split(/\s+/)
@@ -200,8 +189,6 @@ async function searchWikimedia(query: string): Promise<Candidate[]> {
       const info = page.imageinfo?.[0];
       if (!info) continue;
 
-      // Skip obvious non-photo files (icons, logos, diagrams) by size -
-      // real news photos are rarely tiny or perfectly square.
       const width = info.width || 0;
       const height = info.height || 0;
       if (width < 400 || height < 300) continue;
@@ -409,7 +396,7 @@ export function scoreExternalCandidate(
 
 // Maps a story's category/topic to one of the branded fallback identities.
 // Kept intentionally simple (keyword match) since this only decides which
-// branded placeholder to show, not which real photo to use.
+// branded placeholder style to show, not which real photo to use.
 export function detectFallbackCategory(
   entities: ArticleEntities | null,
   fallbackTerms: string
@@ -440,10 +427,6 @@ export async function findMatchingPhoto(
 ): Promise<MatchedPhoto> {
   const queries = generateSearchQueries(entities, fallbackTerms);
 
-  // Search every query across every free source in parallel. This is more
-  // requests than the old single-query approach, but each is a lightweight
-  // metadata lookup (no image downloads), so it stays well within Vercel's
-  // serverless time limits.
   const searchPromises: Promise<Candidate[]>[] = [];
   for (const query of queries) {
     searchPromises.push(searchWikimedia(query));
@@ -466,19 +449,12 @@ export async function findMatchingPhoto(
     if (best.score >= MIN_RELEVANCE_SCORE) {
       return toMatchedPhoto(best.candidate, best.score);
     }
-
-    // Nothing cleared the bar, but if we have ANY candidate at all, use the
-    // best one as a "relevant fallback" (Level 2-3 in the hierarchy) rather
-    // than jumping straight to the branded placeholder - a low-scoring but
-    // topically related photo still beats a generic placeholder.
-    if (best.score > 0) {
-      const photo = toMatchedPhoto(best.candidate, best.score);
-      photo.isFallback = true;
-      return photo;
-    }
+    // Below the bar - a weak, coincidental match (e.g. only matched on
+    // "Kenya") is worse than an honest branded poster, so fall through
+    // to the placeholder below rather than using it.
   }
 
-  // Nothing usable came back from any source - branded category placeholder.
+  // Nothing usable cleared the bar - branded category poster instead.
   const category = detectFallbackCategory(entities, fallbackTerms);
   return {
     url: "",
