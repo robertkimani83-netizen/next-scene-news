@@ -1,19 +1,26 @@
 // Finds a free-to-use, legally reusable photo that actually matches a story's
 // content - not just the first result from one source.
 //
-// Flow: build several targeted search queries from the article's extracted
-// entities (person / place / institution / event) -> search Wikimedia
-// Commons, Openverse, Pexels and Unsplash in parallel -> score every
-// candidate against the entities -> keep the best one only if it BOTH
-// clears the minimum score AND matched a specific signal (a named person,
-// institution, place, or event - not just the country name) -> otherwise
-// fall through to a branded VOX254 poster showing the story's own headline.
-// Never returns null - the caller always gets *something* to display, but
-// low-quality/unrelated photos never win out over an honest branded
-// fallback.
+// Flow: run escalating SEARCH ROUNDS (exact named person first, then
+// institution/place/event context, then broad fallback terms) against
+// Wikimedia Commons, Openverse, Pexels and Unsplash -> text-score every
+// candidate against the entities (context verification) -> for any
+// candidate that clears the text bar, send the actual image pixels to
+// Gemini vision for a strict PASS/REJECT + confidence check (visual
+// verification) -> a candidate only wins if BOTH checks pass, with a
+// higher confidence bar (90%) required when the claim is "this is a photo
+// of a specific named person" than for institution/place/event claims
+// (80%) -> the first round that produces a verified winner stops the
+// search; if every round is exhausted with nothing verified, fall through
+// to a branded VOX254 poster showing the story's own headline. Never
+// returns null - the caller always gets *something* to display, but a
+// wrong photo (wrong person, an animal standing in for a person, a
+// protest sign, a stale archive photo) is never allowed to win out over
+// an honest branded fallback just because it existed.
 //
 // All four sources are free and keyless or free-tier: Wikimedia Commons and
 // Openverse need no API key at all; Pexels/Unsplash use the existing keys.
+// Vision verification reuses the existing GEMINI_API_KEY (free tier).
 
 export interface ArticleEntities {
   people: string[];
@@ -42,6 +49,11 @@ export interface MatchedPhoto {
   relevanceScore: number;
   isFallback: boolean;
   fallbackCategory: PhotoCategory | null;
+  // Set only for real photos that passed Gemini vision verification -
+  // absent/undefined for older stored articles from before this existed,
+  // and for the branded fallback poster (nothing to verify there).
+  visionConfidence?: number;
+  visionReason?: string;
 }
 
 interface Candidate {
@@ -67,42 +79,87 @@ const MIN_RELEVANCE_SCORE = 30;
 const MAX_CANDIDATES_PER_SOURCE = 5;
 
 // ---------------------------------------------------------------------------
-// Query generation
+// Search rounds - escalating from "exact named person" to broad fallback.
+// Each round only runs if the previous one produced no verified winner, so
+// a well-covered story (a well-known politician) resolves fast on round 1
+// without ever spending a broader/vision budget on later rounds.
 // ---------------------------------------------------------------------------
 
-export function generateSearchQueries(
+export interface SearchRound {
+  label: string;
+  queries: string[];
+  // Confidence Gemini vision must reach for a candidate in this round to
+  // win. Higher for "this is a photo of a specific named person" claims
+  // than for institution/place/event claims, since vision can misjudge an
+  // unfamiliar face far more easily than it can spot "this is a building".
+  requiredConfidence: number;
+  personName: string | null;
+}
+
+export function buildSearchRounds(
   entities: ArticleEntities | null,
   fallbackTerms: string
-): string[] {
-  const queries: string[] = [];
+): SearchRound[] {
+  const rounds: SearchRound[] = [];
   const country = entities?.country || "Kenya";
+  const person = entities?.people?.[0] || null;
 
-  if (entities?.people?.length) {
-    const mainPerson = entities.people[0];
-    queries.push(`${mainPerson} ${country}`);
-    queries.push(`${mainPerson} speech`);
+  if (person) {
+    rounds.push({
+      label: "named person",
+      queries: Array.from(
+        new Set([`${person} ${country}`, `${person} speech`, `${person} press conference`])
+      ),
+      requiredConfidence: 90,
+      personName: person,
+    });
   }
 
+  const contextQueries: string[] = [];
   if (entities?.institutions?.length) {
     const inst = entities.institutions[0];
-    queries.push(`${inst} ${country}`);
-    queries.push(`${inst} building`);
+    contextQueries.push(`${inst} ${country}`);
+    contextQueries.push(`${inst} building`);
   }
-
-  if (entities?.places?.length) {
-    const place = entities.places[0];
-    queries.push(`${place} ${country}`);
+  const place = entities?.places?.[0];
+  const placeIsJustCountry =
+    !!place && place.toLowerCase() === country.toLowerCase();
+  if (place && !placeIsJustCountry) {
+    contextQueries.push(`${place} ${country}`);
   }
-
   if (entities?.event) {
-    queries.push(`${entities.event} ${country}`);
+    contextQueries.push(`${entities.event} ${country}`);
+  }
+  if (contextQueries.length) {
+    rounds.push({
+      label: "institution/place/event",
+      queries: Array.from(new Set(contextQueries)),
+      requiredConfidence: 80,
+      personName: null,
+    });
   }
 
   if (fallbackTerms) {
-    queries.push(fallbackTerms);
+    rounds.push({
+      label: "broad fallback terms",
+      queries: [fallbackTerms],
+      requiredConfidence: 80,
+      personName: null,
+    });
   }
 
-  return Array.from(new Set(queries)).slice(0, 4);
+  return rounds;
+}
+
+function buildVisionContext(
+  entities: ArticleEntities | null,
+  fallbackTerms: string
+): string {
+  return (
+    [entities?.institutions?.[0], entities?.places?.[0], entities?.event]
+      .filter(Boolean)
+      .join(", ") || fallbackTerms
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +424,119 @@ async function searchUnsplash(query: string): Promise<Candidate[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Vision verification - looks at the actual image pixels, not just its tags.
+// This is what catches a vulture tagged "Nairobi", a protest sign that
+// happens to contain a name, or a decades-old archive photo being used for
+// a current story - none of which the text scorer above can see.
+// ---------------------------------------------------------------------------
+
+interface VisionResult {
+  decision: "PASS" | "REJECT";
+  confidence: number;
+  reason: string;
+}
+
+async function downloadAsBase64(
+  url: string
+): Promise<{ mimeType: string; data: string } | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) return null;
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    // Cap size so a huge image can't slow the verification call down.
+    if (buf.byteLength > 8 * 1024 * 1024) return null;
+
+    return { mimeType: contentType, data: buf.toString("base64") };
+  } catch (err) {
+    console.error("Image download for vision check failed:", err);
+    return null;
+  }
+}
+
+async function verifyImageWithVision(
+  imageUrl: string,
+  headline: string,
+  mainPerson: string | null,
+  context: string
+): Promise<VisionResult> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  // Fail closed: with no way to verify, never trust an unverified photo.
+  if (!apiKey) {
+    return { decision: "REJECT", confidence: 0, reason: "GEMINI_API_KEY not set" };
+  }
+
+  const image = await downloadAsBase64(imageUrl);
+  if (!image) {
+    return { decision: "REJECT", confidence: 0, reason: "Image could not be downloaded" };
+  }
+
+  const prompt = `You are a strict photo editor for VOX254, a Kenyan news site. Look at the attached image and decide whether it is an honest, accurate photograph to run alongside this story.
+
+HEADLINE: "${headline}"
+${mainPerson ? `NAMED PERSON THE PHOTO MUST SHOW: "${mainPerson}"` : "(no specific named person is required for this photo)"}
+CONTEXT: "${context}"
+
+Checks:
+1. If a named person is given, does the image actually show a real photograph of a human being consistent with that context (NOT an animal, object, logo, or a different/unclear person)?
+2. Is the image primarily a screenshot, meme, protest sign/banner, illustration, or text graphic rather than a real photograph?
+3. Does this look like an old black-and-white or archive-style photo being used for a current, present-day story?
+4. Does the image misleadingly suggest something the headline does not actually say?
+
+If any check fails, REJECT. Respond with ONLY valid JSON, no markdown fences, no extra text:
+{"decision": "PASS" or "REJECT", "confidence": 0-100, "reason": "one short sentence"}`;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9000);
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { inline_data: { mime_type: image.mimeType, data: image.data } },
+                { text: prompt },
+              ],
+            },
+          ],
+          generationConfig: { responseMimeType: "application/json" },
+        }),
+      }
+    );
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.error("Gemini vision request failed:", await res.text());
+      return { decision: "REJECT", confidence: 0, reason: "Vision API request failed" };
+    }
+
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    const parsed = JSON.parse(text);
+
+    const decision = parsed.decision === "PASS" ? "PASS" : "REJECT";
+    const confidence =
+      typeof parsed.confidence === "number" ? parsed.confidence : 0;
+    return { decision, confidence, reason: parsed.reason || "" };
+  } catch (err) {
+    console.error("Gemini vision verification error:", err);
+    return { decision: "REJECT", confidence: 0, reason: "Vision verification error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
 
@@ -379,7 +549,11 @@ function buildCredit(c: Candidate): string {
   return `Photo: ${c.photographer} / ${c.source}`;
 }
 
-function toMatchedPhoto(c: Candidate, score: number): MatchedPhoto {
+function toMatchedPhoto(
+  c: Candidate,
+  score: number,
+  vision?: VisionResult
+): MatchedPhoto {
   return {
     url: c.url,
     photographer: c.photographer,
@@ -391,21 +565,28 @@ function toMatchedPhoto(c: Candidate, score: number): MatchedPhoto {
     relevanceScore: score,
     isFallback: false,
     fallbackCategory: null,
+    ...(vision
+      ? { visionConfidence: vision.confidence, visionReason: vision.reason }
+      : {}),
   };
 }
 
 // Validates a candidate that came from elsewhere (e.g. the article's own
-// og:image) using the same scoring system as everything else, instead of
-// trusting it blindly. Used by the cron route so a wrong og:image (a logo,
-// an unrelated stock photo) can no longer bypass scoring entirely.
-export function scoreExternalCandidate(
+// og:image) through the SAME two-step check as every other candidate:
+// text/context scoring first, then Gemini vision on the actual pixels.
+// Used by the cron route so a wrong og:image (a logo, an unrelated stock
+// photo, a screenshot) can no longer bypass verification just because it
+// came from the source article's own page. Returns null if it doesn't
+// clear both bars, so the caller falls through to the normal search.
+export async function verifyExternalCandidate(
   url: string,
   title: string,
   sourceName: string,
   sourceUrl: string,
   entities: ArticleEntities | null,
-  fallbackTerms: string
-): MatchedPhoto {
+  fallbackTerms: string,
+  headline: string
+): Promise<MatchedPhoto | null> {
   const candidate: Candidate = {
     url,
     photographer: sourceName,
@@ -415,8 +596,27 @@ export function scoreExternalCandidate(
     title,
     searchQuery: fallbackTerms,
   };
-  const result = scoreCandidate(candidate, entities, fallbackTerms);
-  return toMatchedPhoto(candidate, result.score);
+
+  const textResult = scoreCandidate(candidate, entities, fallbackTerms);
+  if (textResult.score < MIN_RELEVANCE_SCORE || !textResult.hasSpecificMatch) {
+    return null;
+  }
+
+  const person = entities?.people?.[0] || null;
+  const requiredConfidence = person ? 90 : 80;
+  const context = buildVisionContext(entities, fallbackTerms);
+
+  const vision = await verifyImageWithVision(
+    url,
+    headline || fallbackTerms,
+    person,
+    context
+  );
+
+  if (vision.decision === "PASS" && vision.confidence >= requiredConfidence) {
+    return toMatchedPhoto(candidate, textResult.score, vision);
+  }
+  return null;
 }
 
 // Maps a story's category/topic to one of the branded fallback identities.
@@ -446,43 +646,15 @@ export function detectFallbackCategory(
   return "news";
 }
 
-export async function findMatchingPhoto(
-  fallbackTerms: string,
-  entities: ArticleEntities | null = null
-): Promise<MatchedPhoto> {
-  const queries = generateSearchQueries(entities, fallbackTerms);
+// Cap on how many text-scored candidates get an (expensive) vision check
+// per round - keeps a single cron run within Vercel's function time budget
+// instead of vision-checking every candidate from every source.
+const MAX_CANDIDATES_TO_VERIFY_PER_ROUND = 3;
 
-  const searchPromises: Promise<Candidate[]>[] = [];
-  for (const query of queries) {
-    searchPromises.push(searchWikimedia(query));
-    searchPromises.push(searchOpenverse(query));
-    searchPromises.push(searchPexels(query));
-    searchPromises.push(searchUnsplash(query));
-  }
-
-  const results = await Promise.all(searchPromises);
-  const allCandidates = results.flat();
-
-  if (allCandidates.length > 0) {
-    const scored = allCandidates.map((c) => {
-      const result = scoreCandidate(c, entities, fallbackTerms);
-      return {
-        candidate: c,
-        score: result.score,
-        hasSpecificMatch: result.hasSpecificMatch,
-      };
-    });
-    scored.sort((a, b) => b.score - a.score);
-
-    const best = scored[0];
-    // Require BOTH a high enough score AND at least one specific signal -
-    // generic country/word overlap alone is never enough on its own.
-    if (best.score >= MIN_RELEVANCE_SCORE && best.hasSpecificMatch) {
-      return toMatchedPhoto(best.candidate, best.score);
-    }
-  }
-
-  // Nothing usable cleared the bar - branded category poster instead.
+function brandedFallback(
+  entities: ArticleEntities | null,
+  fallbackTerms: string
+): MatchedPhoto {
   const category = detectFallbackCategory(entities, fallbackTerms);
   return {
     url: "",
@@ -496,4 +668,57 @@ export async function findMatchingPhoto(
     isFallback: true,
     fallbackCategory: category,
   };
+}
+
+export async function findMatchingPhoto(
+  fallbackTerms: string,
+  entities: ArticleEntities | null = null,
+  headline: string = ""
+): Promise<MatchedPhoto> {
+  const rounds = buildSearchRounds(entities, fallbackTerms);
+  const context = buildVisionContext(entities, fallbackTerms);
+
+  for (const round of rounds) {
+    const searchPromises: Promise<Candidate[]>[] = [];
+    for (const query of round.queries) {
+      searchPromises.push(searchWikimedia(query));
+      searchPromises.push(searchOpenverse(query));
+      searchPromises.push(searchPexels(query));
+      searchPromises.push(searchUnsplash(query));
+    }
+
+    const results = await Promise.all(searchPromises);
+    const allCandidates = results.flat();
+    if (!allCandidates.length) continue;
+
+    // Context verification (text/tags) first - cheap, filters out most of
+    // the noise before we ever spend a vision call.
+    const scored = allCandidates
+      .map((c) => {
+        const result = scoreCandidate(c, entities, fallbackTerms);
+        return { candidate: c, score: result.score, hasSpecificMatch: result.hasSpecificMatch };
+      })
+      .filter((s) => s.score >= MIN_RELEVANCE_SCORE && s.hasSpecificMatch)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_CANDIDATES_TO_VERIFY_PER_ROUND);
+
+    // Visual verification, strongest candidate first - stop at the first
+    // one that actually passes instead of checking all of them.
+    for (const s of scored) {
+      const vision = await verifyImageWithVision(
+        s.candidate.url,
+        headline || fallbackTerms,
+        round.personName,
+        context
+      );
+      if (vision.decision === "PASS" && vision.confidence >= round.requiredConfidence) {
+        return toMatchedPhoto(s.candidate, s.score, vision);
+      }
+    }
+    // Nothing in this round passed both checks - escalate to the next,
+    // broader round rather than settling for a rejected candidate.
+  }
+
+  // Every round exhausted with nothing verified - branded poster instead.
+  return brandedFallback(entities, fallbackTerms);
 }
