@@ -38,6 +38,12 @@ export default async function ArticlePage({ params }: { params: { id: string } }
         <div className="article-photo">
           <ArticleImage photo={article.photo} alt={article.headline} aspectRatio="16/9" watermarkSize="large" />
         </div>
+        {article.photo &&
+          !article.photo.isFallback &&
+          (article.photo.source === "Wikimedia Commons" ||
+            article.photo.source === "Openverse") && (
+            <div className="photo-credit">{article.photo.credit}</div>
+          )}
 
         <div className="article-body">
           {paragraphs.map((p, i) => (
