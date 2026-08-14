@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAllFeeds, fetchArticlePage } from "@/lib/rss";
 import { rewriteArticle } from "@/lib/ai";
-import { findMatchingPhoto, scoreExternalCandidate, type MatchedPhoto } from "@/lib/photos";
+import { findMatchingPhoto, verifyExternalCandidate, type MatchedPhoto } from "@/lib/photos";
 import { addArticle, loadArticles, type StoredArticle } from "@/lib/store";
 import { postToFacebook } from "@/lib/social/facebook";
 import { postToInstagram } from "@/lib/social/instagram";
@@ -14,6 +14,11 @@ import { postToTikTok } from "@/lib/social/tiktok";
 // (see vercel.json) rather than by a person clicking a button.
 
 const MAX_POSTS_PER_RUN = 3;
+
+// Vision-verifying candidate photos (downloading each image + a Gemini
+// call) takes real time across up to 3 articles per run - give this route
+// more headroom than the default so it doesn't get cut off mid-run.
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
@@ -44,26 +49,32 @@ export async function GET(req: NextRequest) {
       const pageData = await fetchArticlePage(rawArticle.link);
       const rewritten = await rewriteArticle(rawArticle, pageData.bodyText);
 
-      const searchedPhoto = await findMatchingPhoto(
-        rewritten.photoSearchTerms,
-        rewritten.entities
-      );
-
+      // Fast path: check the source article's own photo (og:image) first,
+      // through the SAME text + Gemini-vision verification as everything
+      // else - a wrong/unrelated og:image (a logo, an ad banner, a
+      // screenshot) no longer gets used just because it came from the
+      // original article. Only search elsewhere if it doesn't pass.
       const realPhotoUrl = rawArticle.realImageUrl ?? pageData.imageUrl;
-      let photo: MatchedPhoto = searchedPhoto;
+      let photo: MatchedPhoto | null = null;
 
       if (realPhotoUrl) {
-        const externalPhoto = scoreExternalCandidate(
+        photo = await verifyExternalCandidate(
           realPhotoUrl,
           rawArticle.title,
           rawArticle.sourceName,
           rawArticle.link,
           rewritten.entities,
-          rewritten.photoSearchTerms
+          rewritten.photoSearchTerms,
+          rewritten.headline
         );
-        if (externalPhoto.relevanceScore > searchedPhoto.relevanceScore) {
-          photo = externalPhoto;
-        }
+      }
+
+      if (!photo) {
+        photo = await findMatchingPhoto(
+          rewritten.photoSearchTerms,
+          rewritten.entities,
+          rewritten.headline
+        );
       }
 
       const id = crypto.randomUUID();
