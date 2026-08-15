@@ -163,6 +163,22 @@ export interface ArticlePageData {
   bodyText: string;
 }
 
+// AllAfrica (and similar aggregators) syndicate other outlets' reporting and
+// link back to the real publisher with "Read the original article on X" -
+// but their own og:image is always just their own logo, never a real photo.
+// Verified directly against a live AllAfrica page: every article's og:image
+// is https://cdn.allafrica.com/static/images/structure/aa-logo-*.png,
+// regardless of story. So a real photo, when one exists, is one hop away on
+// the original publisher's own page - not on AllAfrica's wrapper page.
+const ALLAFRICA_LOGO_PATTERN = /cdn\.allafrica\.com\/static\/images\/structure\/aa-logo/i;
+
+function extractOriginalSourceUrl(html: string): string | null {
+  const match = html.match(
+    /<a[^>]+href=["']([^"']+)["'][^>]*>(?:(?!<\/a>)[\s\S])*?original article(?:(?!<\/a>)[\s\S])*?<\/a>/i
+  );
+  return match ? match[1] : null;
+}
+
 export async function fetchArticlePage(articleUrl: string): Promise<ArticlePageData> {
   try {
     const res = await fetch(articleUrl, {
@@ -181,6 +197,46 @@ export async function fetchArticlePage(articleUrl: string): Promise<ArticlePageD
     const imageMatch =
       html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+
+    let imageUrl = imageMatch ? imageMatch[1] : null;
+
+    // If there's no image, or it's just AllAfrica's own logo, follow the
+    // "read original article on X" link to the real publisher's page and
+    // use its photo instead. Only fires when actually needed, so feeds
+    // that already provide a real image are unaffected.
+    if (!imageUrl || ALLAFRICA_LOGO_PATTERN.test(imageUrl)) {
+      const originalUrl = extractOriginalSourceUrl(html);
+      if (originalUrl) {
+        try {
+          const originalRes = await fetch(originalUrl, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml",
+              "Accept-Language": "en-US,en;q=0.9",
+            },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (originalRes.ok) {
+            const originalHtml = await originalRes.text();
+            const originalImageMatch =
+              originalHtml.match(
+                /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+              ) ??
+              originalHtml.match(
+                /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+              );
+            if (originalImageMatch) {
+              imageUrl = originalImageMatch[1];
+            }
+          }
+        } catch (err) {
+          // Original publisher's page unreachable - not fatal, we just
+          // fall through to the normal live photo search like before.
+          console.error("Original-source image fetch failed:", err);
+        }
+      }
+    }
 
     // Try to isolate the real article body first, so we don't dilute
     // the extracted text with nav menus, cookie banners, and related-article
@@ -208,7 +264,7 @@ export async function fetchArticlePage(articleUrl: string): Promise<ArticlePageD
       .trim()
       .slice(0, 4000);
 
-    return { imageUrl: imageMatch ? imageMatch[1] : null, bodyText };
+    return { imageUrl, bodyText };
   } catch {
     return { imageUrl: null, bodyText: "" };
   }
