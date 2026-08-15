@@ -651,6 +651,15 @@ export function detectFallbackCategory(
 // instead of vision-checking every candidate from every source.
 const MAX_CANDIDATES_TO_VERIFY_PER_ROUND = 3;
 
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function brandedFallback(
   entities: ArticleEntities | null,
   fallbackTerms: string
@@ -693,17 +702,24 @@ export async function findMatchingPhoto(
 
     // Context verification (text/tags) first - cheap, filters out most of
     // the noise before we ever spend a vision call.
-    const scored = allCandidates
+    const qualifying = allCandidates
       .map((c) => {
         const result = scoreCandidate(c, entities, fallbackTerms);
         return { candidate: c, score: result.score, hasSpecificMatch: result.hasSpecificMatch };
       })
-      .filter((s) => s.score >= MIN_RELEVANCE_SCORE && s.hasSpecificMatch)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_CANDIDATES_TO_VERIFY_PER_ROUND);
+      .filter((s) => s.score >= MIN_RELEVANCE_SCORE && s.hasSpecificMatch);
 
-    // Visual verification, strongest candidate first - stop at the first
-    // one that actually passes instead of checking all of them.
+    // Shuffle rather than always taking the single top-scored candidate -
+    // search engines tend to return the same top result for the same
+    // query, so always verifying the highest score first meant the same
+    // person (e.g. a well-covered figure like the president) kept getting
+    // the exact same photo on every article. Every candidate here already
+    // cleared the same relevance bar, so picking among them at random
+    // doesn't lower quality - it just adds visual variety.
+    const scored = shuffle(qualifying).slice(0, MAX_CANDIDATES_TO_VERIFY_PER_ROUND);
+
+    // Visual verification - stop at the first shuffled candidate that
+    // actually passes instead of checking all of them.
     for (const s of scored) {
       const vision = await verifyImageWithVision(
         s.candidate.url,
