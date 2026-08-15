@@ -40,7 +40,14 @@ export async function GET(req: NextRequest) {
     const j = Math.floor(Math.random() * (i + 1));
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
-  const freshRaw = candidates.slice(0, MAX_POSTS_PER_RUN);
+  // Prefer articles whose RSS entry already carries a real photo - these
+  // are far more likely to end up with a genuine article image instead of
+  // needing (and possibly not finding) a live photo search. Still random
+  // within each group (the shuffle above already ran), just biased toward
+  // stories that start off with a real photo in hand.
+  const withPhoto = candidates.filter((a) => a.realImageUrl);
+  const withoutPhoto = candidates.filter((a) => !a.realImageUrl);
+  const freshRaw = [...withPhoto, ...withoutPhoto].slice(0, MAX_POSTS_PER_RUN);
   const results = [];
   const errors: string[] = [];
 
