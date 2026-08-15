@@ -92,7 +92,7 @@ export default async function HomePage() {
                     <div className="social-status">
                       <span className={a.postedTo.facebook ? "live" : ""}>Facebook</span>
                       <span className={a.postedTo.instagram ? "live" : ""}>Instagram</span>
-                      <span className={a.postedTo.tiktok ? "live" : ""}>TikTok</span>
+                      <span className={a.postedTo.x ? "live" : ""}>X</span>
                     </div>
                   </div>
                 </article>
@@ -104,5 +104,3 @@ export default async function HomePage() {
     </main>
   );
 }
-
-
