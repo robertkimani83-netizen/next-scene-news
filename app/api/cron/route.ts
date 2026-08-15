@@ -120,21 +120,27 @@ export async function GET(req: NextRequest) {
         await postToFacebook(socialImageUrl, rewritten.facebookCaption, ownArticleUrl);
         stored.postedTo.facebook = true;
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         console.error("FB post failed:", e);
+        errors.push(`"${stored.headline}" - Facebook: ${message}`);
       }
 
       try {
         await postToInstagram(socialImageUrl, rewritten.instagramCaption, ownArticleUrl);
         stored.postedTo.instagram = true;
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         console.error("IG post failed:", e);
+        errors.push(`"${stored.headline}" - Instagram: ${message}`);
       }
 
       try {
         await postToTikTok(socialImageUrl, rewritten.tiktokCaption, ownArticleUrl);
         stored.postedTo.tiktok = true;
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         console.error("TikTok post failed:", e);
+        errors.push(`"${stored.headline}" - TikTok: ${message}`);
       }
 
       await addArticle(stored);
