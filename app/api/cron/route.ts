@@ -5,7 +5,7 @@ import { findMatchingPhoto, verifyExternalCandidate, type MatchedPhoto } from "@
 import { addArticle, loadArticles, type StoredArticle } from "@/lib/store";
 import { postToFacebook } from "@/lib/social/facebook";
 import { postToInstagram } from "@/lib/social/instagram";
-import { postToTikTok } from "@/lib/social/tiktok";
+import { postToX } from "@/lib/social/x";
 
 // This route is the whole pipeline in one place: pull news -> read the real
 // article page -> rewrite as a full original article -> find a photo ->
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
         sourceName: rawArticle.sourceName,
         publishedAt: rawArticle.publishedAt,
         photo,
-        postedTo: { facebook: false, instagram: false, tiktok: false },
+        postedTo: { facebook: false, instagram: false, x: false },
         ...rewritten,
       };
 
@@ -135,12 +135,12 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        await postToTikTok(socialImageUrl, rewritten.tiktokCaption, ownArticleUrl);
-        stored.postedTo.tiktok = true;
+        await postToX(socialImageUrl, rewritten.xCaption, ownArticleUrl);
+        stored.postedTo.x = true;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        console.error("TikTok post failed:", e);
-        errors.push(`"${stored.headline}" - TikTok: ${message}`);
+        console.error("X post failed:", e);
+        errors.push(`"${stored.headline}" - X: ${message}`);
       }
 
       await addArticle(stored);
