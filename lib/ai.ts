@@ -9,7 +9,7 @@ export interface RewrittenArticle {
   article: string; // full multi-paragraph original article for the article page
   facebookCaption: string;
   instagramCaption: string;
-  tiktokCaption: string;
+  xCaption: string;
   photoSearchTerms: string; // keywords to find a matching photo, used only if no real photo was found
   entities: {
     people: string[]; // named people mentioned, main subject first
@@ -37,7 +37,7 @@ Return ONLY valid JSON, no markdown fences, matching this shape:
   "article": "3-6 full original paragraphs (plain text, paragraphs separated by \\n\\n) covering the story properly",
   "facebookCaption": "1-2 sentence caption with a hook, no link (the link goes in a comment)",
   "instagramCaption": "1-2 sentence caption + 3-5 relevant hashtags, no link",
-  "tiktokCaption": "short punchy caption + 3-5 relevant hashtags, no link",
+  "xCaption": "1-2 sentence punchy caption + 2-4 relevant hashtags, no link (the link is added separately when posting)",
   "photoSearchTerms": "3-6 words for a photo search - if the story centers on a named public figure (a politician, official, celebrity), lead with their full name (e.g. 'William Ruto speech', 'Edwin Sifuna press'); otherwise be specific and visual (e.g. 'Kenyan parliament building', 'hospital ward Kenya') rather than vague or abstract terms",
   "entities": {
     "people": ["full name of the main person this story is about, then any other named people, most important first - empty array if no named person is central to the story"],
