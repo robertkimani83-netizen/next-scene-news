@@ -13,7 +13,7 @@ export interface StoredArticle extends RewrittenArticle {
   sourceName: string;
   publishedAt: string;
   photo: MatchedPhoto | null;
-  postedTo: { facebook: boolean; instagram: boolean; tiktok: boolean };
+  postedTo: { facebook: boolean; instagram: boolean; x: boolean };
 }
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
