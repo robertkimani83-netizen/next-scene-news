@@ -4,8 +4,8 @@ export const metadata = {
   title: "VOX254 - The Voice of 254",
   description: "AI-curated Kenyan news, updated around the clock.",
   verification: {
-    google: "ZTZTto1zIxSwEeQOPpFU6zHQs02iqqY-m14a3sDOfNU",
-  },
+  google: "6Dl4AogANlyfZpuXypF7zKID-6F2SZ4ZlpOUMTKJHHY",
+},
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
