@@ -23,9 +23,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const description =
     article.teaser ||
-    article.summary ||
     article.article?.slice(0, 160) ||
-    `Read the latest news from VOX254 - The Voice of 254.`;
+    "Read the latest news from VOX254 - The Voice of 254.";
 
   const articleUrl = `${BASE_URL}/article/${article.id}`;
 
@@ -95,7 +94,7 @@ export default async function ArticlePage({ params }: Props) {
 
   if (!article) return notFound();
 
-  const bodyText = article.article ?? article.summary ?? "";
+  const bodyText = article.article ?? article.teaser ?? "";
   const paragraphs = bodyText.split(/\n\n+/).filter(Boolean);
 
   const articleUrl = `${BASE_URL}/article/${article.id}`;
@@ -108,33 +107,41 @@ export default async function ArticlePage({ params }: Props) {
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "NewsArticle",
+
     mainEntityOfPage: {
       "@type": "WebPage",
       "@id": articleUrl,
     },
+
     headline: article.headline,
+
     description:
       article.teaser ||
-      article.summary ||
       article.article?.slice(0, 160) ||
       "",
+
     datePublished: article.publishedAt,
     dateModified: article.publishedAt,
+
     image: [imageUrl],
+
     author: {
       "@type": "Organization",
       name: "VOX254",
       url: BASE_URL,
     },
+
     publisher: {
       "@type": "Organization",
       name: "VOX254",
       url: BASE_URL,
+
       logo: {
         "@type": "ImageObject",
         url: `${BASE_URL}/vox254_logo.png`,
       },
     },
+
     isAccessibleForFree: true,
   };
 
@@ -154,7 +161,10 @@ export default async function ArticlePage({ params }: Props) {
               <img
                 src="/vox254_logo.png"
                 alt="VOX254 - The Voice of 254"
-                style={{ height: "40px", width: "auto" }}
+                style={{
+                  height: "40px",
+                  width: "auto",
+                }}
               />
             </div>
           </Link>
@@ -163,7 +173,9 @@ export default async function ArticlePage({ params }: Props) {
         <article className="article-page">
           <div className="eyebrow">VOX254</div>
 
-          <h1 className="article-title">{article.headline}</h1>
+          <h1 className="article-title">
+            {article.headline}
+          </h1>
 
           <div className="byline">
             {timeAgo(article.publishedAt)}
