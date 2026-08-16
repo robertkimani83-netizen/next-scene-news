@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchAllFeeds, fetchArticlePage } from "@/lib/rss";
 import { rewriteArticle } from "@/lib/ai";
 import { findMatchingPhoto, verifyExternalCandidate, type MatchedPhoto } from "@/lib/photos";
-import { addArticle, loadArticles, type StoredArticle } from "@/lib/store";
+import {
+  addArticle,
+  loadArticles,
+  getDailyPacedCount,
+  incrementDailyPacedCount,
+  getDailyBreakingCount,
+  incrementDailyBreakingCount,
+  type StoredArticle,
+} from "@/lib/store";
 import { postToFacebook } from "@/lib/social/facebook";
 import { postToInstagram } from "@/lib/social/instagram";
 import { postToX } from "@/lib/social/x";
@@ -13,12 +21,41 @@ import { postToX } from "@/lib/social/x";
 // original source) -> save it to the site. Designed to run on a schedule
 // (see vercel.json) rather than by a person clicking a button.
 
+// How many fresh candidates this run looks at and rewrites. Note this is
+// NOT the same as how many actually get posted - a candidate only posts if
+// it's breaking news (always allowed) or if pacing has room for it (see
+// below) - most runs will rewrite up to this many but post fewer.
 const MAX_POSTS_PER_RUN = 3;
+
+// Non-breaking articles are capped at 15/day AND spread evenly across the
+// full 24 hours (Kenyan local time) rather than being allowed to burst
+// through the cap in one busy morning and leave nothing for the rest of
+// the day. Breaking news bypasses this entirely - always posts immediately,
+// any time, uncounted against this limit.
+const DAILY_PACED_LIMIT = 15;
 
 // Vision-verifying candidate photos (downloading each image + a Gemini
 // call) takes real time across up to 3 articles per run - give this route
 // more headroom than the default so it doesn't get cut off mid-run.
 export const maxDuration = 60;
+
+// How many of the day's 15 paced slots SHOULD have been used by this point
+// in the Kenyan day, if they're spread evenly - e.g. by 12:00 noon (half
+// the day gone), roughly 7-8 of the 15 should have posted. Comparing this
+// against how many have actually posted today is what prevents an early
+// news burst from exhausting the whole day's quota by 9am.
+function expectedPacedSlotsByNow(): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const minutesSinceMidnight = hour * 60 + minute;
+  return Math.ceil((minutesSinceMidnight / 1440) * DAILY_PACED_LIMIT);
+}
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
@@ -30,6 +67,18 @@ export async function GET(req: NextRequest) {
   }
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(req.url).origin;
+
+  const pacedPostedToday = await getDailyPacedCount();
+  const breakingPostedToday = await getDailyBreakingCount();
+
+  // How many non-breaking slots this specific run is allowed to fill,
+  // based on pacing - decremented locally as this run actually uses them.
+  // NOT an early-return/skip-the-whole-run condition, because breaking
+  // news must still be checked and processed even when this hits zero.
+  let pacedSlotsLeftThisRun = Math.max(
+    0,
+    Math.min(MAX_POSTS_PER_RUN, expectedPacedSlotsByNow() - pacedPostedToday, DAILY_PACED_LIMIT - pacedPostedToday)
+  );
 
   const existing = await loadArticles();
   const existingLinks = new Set(existing.map((a) => a.link));
@@ -47,14 +96,29 @@ export async function GET(req: NextRequest) {
   // stories that start off with a real photo in hand.
   const withPhoto = candidates.filter((a) => a.realImageUrl);
   const withoutPhoto = candidates.filter((a) => !a.realImageUrl);
+  // We don't know which of these are breaking news until after rewriting
+  // them, so this run always looks at up to MAX_POSTS_PER_RUN candidates
+  // regardless of how many paced slots are left - a breaking story must
+  // never go unnoticed just because the day's non-breaking quota is spent.
   const freshRaw = [...withPhoto, ...withoutPhoto].slice(0, MAX_POSTS_PER_RUN);
   const results = [];
+  const skippedForPacing: string[] = [];
   const errors: string[] = [];
 
   for (const rawArticle of freshRaw) {
     try {
       const pageData = await fetchArticlePage(rawArticle.link);
       const rewritten = await rewriteArticle(rawArticle, pageData.bodyText);
+
+      const isBreaking = rewritten.importance === "breaking";
+
+      if (!isBreaking && pacedSlotsLeftThisRun <= 0) {
+        // Not breaking, and today's pace doesn't allow another one yet -
+        // skip WITHOUT storing it, so it's picked back up and reconsidered
+        // on a later run once pacing (or a fresh day) allows it.
+        skippedForPacing.push(rewritten.headline);
+        continue;
+      }
 
       // Fast path: check the source article's own photo (og:image) first,
       // through the SAME text + Gemini-vision verification as everything
@@ -144,7 +208,17 @@ export async function GET(req: NextRequest) {
       }
 
       await addArticle(stored);
-      results.push({ headline: stored.headline, postedTo: stored.postedTo });
+      if (isBreaking) {
+        await incrementDailyBreakingCount();
+      } else {
+        await incrementDailyPacedCount();
+        pacedSlotsLeftThisRun -= 1;
+      }
+      results.push({
+        headline: stored.headline,
+        importance: rewritten.importance,
+        postedTo: stored.postedTo,
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error(`Failed to process article "${rawArticle.title}":`, e);
@@ -152,10 +226,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const newPacedCount = results.filter((r) => r.importance !== "breaking").length;
+  const newBreakingCount = results.filter((r) => r.importance === "breaking").length;
+
   return NextResponse.json({
     rawFeedItemsFound: raw.length,
     newItemsAfterDedup: freshRaw.length,
     processed: results.length,
+    skippedForPacing,
+    pacedPostedToday: pacedPostedToday + newPacedCount,
+    pacedDailyLimit: DAILY_PACED_LIMIT,
+    breakingPostedToday: breakingPostedToday + newBreakingCount,
     results,
     errors,
   });
