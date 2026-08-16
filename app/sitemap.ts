@@ -1,9 +1,10 @@
 import type { MetadataRoute } from "next";
+import { loadArticles } from "@/lib/store";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = "https://next-scene-news-897q.vercel.app";
 
-  return [
+  const staticPages: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
       lastModified: new Date(),
@@ -29,4 +30,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.5,
     },
   ];
+
+  const articles = await loadArticles();
+
+  const articlePages: MetadataRoute.Sitemap = articles.map((article) => ({
+    url: `${baseUrl}/article/${article.id}`,
+    lastModified: new Date(article.publishedAt),
+    changeFrequency: "daily",
+    priority: 0.8,
+  }));
+
+  return [...staticPages, ...articlePages];
 }
