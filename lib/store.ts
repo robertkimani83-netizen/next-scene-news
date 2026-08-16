@@ -68,3 +68,64 @@ export async function addArticle(article: StoredArticle): Promise<void> {
   articles.unshift(article);
   await redisSet(articles.slice(0, 200)); // keep the store bounded
 }
+
+// Daily post counters - split into two independent counts, both keyed by
+// Kenyan local date (not UTC, since this is a Kenyan news site and the
+// day should reset at Kenyan midnight):
+//
+// - "paced" count: NON-breaking articles, subject to the 15/day cap AND
+//   spread evenly across the day (see the pacing calculation in the cron
+//   route) rather than all firing in one burst of news.
+// - "breaking" count: BREAKING articles, which bypass the cap and pacing
+//   entirely and always post immediately - this counter exists purely
+//   for visibility in the cron response, not to enforce any limit.
+function nairobiDateKey(): string {
+  // en-CA gives YYYY-MM-DD directly, which is exactly the key format we want.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi" }).format(new Date());
+}
+
+async function redisIncr(key: string): Promise<void> {
+  if (!REDIS_URL || !REDIS_TOKEN) return;
+  try {
+    await fetch(`${REDIS_URL}/incr/${key}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+    // Let the counter key expire on its own after 2 days so old daily
+    // counters don't pile up forever - harmless to re-set this every call.
+    await fetch(`${REDIS_URL}/expire/${key}/172800`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+  } catch (err) {
+    console.error(`Failed to increment ${key}:`, err);
+  }
+}
+
+async function redisGetCount(key: string): Promise<number> {
+  if (!REDIS_URL || !REDIS_TOKEN) return 0;
+  try {
+    const res = await fetch(`${REDIS_URL}/get/${key}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      cache: "no-store",
+    });
+    const data = await res.json();
+    return data.result ? parseInt(data.result, 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function getDailyPacedCount(): Promise<number> {
+  return redisGetCount(`next-scene-news:daily-count:${nairobiDateKey()}`);
+}
+
+export async function incrementDailyPacedCount(): Promise<void> {
+  await redisIncr(`next-scene-news:daily-count:${nairobiDateKey()}`);
+}
+
+export async function getDailyBreakingCount(): Promise<number> {
+  return redisGetCount(`next-scene-news:breaking-count:${nairobiDateKey()}`);
+}
+
+export async function incrementDailyBreakingCount(): Promise<void> {
+  await redisIncr(`next-scene-news:breaking-count:${nairobiDateKey()}`);
+}
