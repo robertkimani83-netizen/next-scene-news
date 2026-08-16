@@ -11,6 +11,12 @@ export interface RewrittenArticle {
   instagramCaption: string;
   xCaption: string;
   photoSearchTerms: string; // keywords to find a matching photo, used only if no real photo was found
+  // How urgent/major this story is. "breaking" bypasses the daily post
+  // pacing entirely and always goes out immediately - everything else is
+  // paced through the day. high/normal/low are captured for future use
+  // (e.g. platform-specific decisions) but only "breaking" affects
+  // scheduling today.
+  importance: "breaking" | "high" | "normal" | "low";
   entities: {
     people: string[]; // named people mentioned, main subject first
     places: string[]; // specific places (city, county, neighborhood)
@@ -39,6 +45,7 @@ Return ONLY valid JSON, no markdown fences, matching this shape:
   "instagramCaption": "1-2 sentence caption + 3-5 relevant hashtags, no link",
   "xCaption": "1-2 sentence punchy caption + 2-4 relevant hashtags, no link (the link is added separately when posting)",
   "photoSearchTerms": "3-6 words for a photo search - if the story centers on a named public figure (a politician, official, celebrity), lead with their full name (e.g. 'William Ruto speech', 'Edwin Sifuna press'); otherwise be specific and visual (e.g. 'Kenyan parliament building', 'hospital ward Kenya') rather than vague or abstract terms",
+  "importance": "one of: breaking, high, normal, low - be conservative, most news is normal or low. Use 'breaking' ONLY for genuinely major, urgent, unfolding news that Kenyans would want to know about immediately (a death of a major public figure, a disaster, a coup/major security incident, a landmark court/election ruling just announced). Use 'high' for significant but not urgent news (a major policy announcement, a notable arrest, a big economic figure). Use 'normal' for routine news coverage. Use 'low' for minor/soft/human-interest stories.",
   "entities": {
     "people": ["full name of the main person this story is about, then any other named people, most important first - empty array if no named person is central to the story"],
     "places": ["specific place names mentioned - a city, county, neighborhood, or landmark - most specific/important first, empty array if none"],
