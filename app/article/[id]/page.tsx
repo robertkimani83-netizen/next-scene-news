@@ -200,6 +200,11 @@ export default async function ArticlePage({ params }: Props) {
                 {article.photo.credit}
               </div>
             )}
+          {article.photo?.isFallback && article.photo.softBackgroundCredit && (
+            <div className="photo-credit">
+              {article.photo.softBackgroundCredit} (file photo)
+            </div>
+          )}
 
           <div className="article-body">
             {paragraphs.map((p, i) => (
