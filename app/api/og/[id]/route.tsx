@@ -3,7 +3,7 @@ import { getArticleById } from "@/lib/store";
 
 export const runtime = "edge";
 
-const CATEGORY_STYLES: Record<
+const CATEGORY_STYLES: Record
   string,
   { from: string; to: string; label: string }
 > = {
@@ -33,6 +33,16 @@ export async function GET(
   const realPhotoUrl =
     article?.photo?.url && !article.photo.url.includes("/api/og/")
       ? article.photo.url
+      : null;
+
+  // Only relevant on the branded fallback: a real, verified photo of the
+  // right person that couldn't be confirmed as depicting THIS story's
+  // specific event - used to soften the card's look without ever
+  // implying it's an actual photo of the event itself (see the
+  // "FILE PHOTO" label below).
+  const softBackgroundUrl =
+    !realPhotoUrl && article?.photo?.isFallback
+      ? article?.photo?.softBackgroundUrl ?? null
       : null;
 
   const dateLabel = article?.publishedAt
@@ -149,6 +159,171 @@ export async function GET(
                 display: "flex",
                 color: "#ffffff",
                 fontSize: "42px",
+                fontWeight: 800,
+                lineHeight: 1.2,
+                maxWidth: "1050px",
+              }}
+            >
+              {headline}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                color: "rgba(255,255,255,0.75)",
+                fontSize: "16px",
+                fontWeight: 600,
+                letterSpacing: "1px",
+              }}
+            >
+              VOX254 — The Voice of 254 {dateLabel ? `· ${dateLabel}` : ""}
+            </div>
+          </div>
+        </div>
+      ),
+      { width: 1200, height: 675 }
+    );
+  }
+
+  // ---- SOFT FALLBACK CARD: a verified photo of the right person exists,
+  // just not confirmed to be from this specific event - use it as a
+  // heavily brand-tinted background instead of a flat color, honestly
+  // labeled as a file photo so it never implies it's from the event. ----
+  if (softBackgroundUrl) {
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            width: "1200px",
+            height: "675px",
+            display: "flex",
+            position: "relative",
+            fontFamily: "sans-serif",
+          }}
+        >
+          <img
+            src={softBackgroundUrl}
+            width="1200"
+            height="675"
+            style={{ position: "absolute", inset: 0, objectFit: "cover" }}
+          />
+
+          {/* heavy brand-color wash - keeps this reading as a branded
+              card, not a literal event photo */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              background: `linear-gradient(135deg, ${style.from}ee 0%, ${style.to}f5 100%)`,
+            }}
+          />
+
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              padding: "48px 56px 0 56px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                background: "rgba(0,0,0,0.35)",
+                borderRadius: "12px",
+                padding: "14px 22px",
+              }}
+            >
+              <img src={logoUrl} width="44" height="44" style={{ opacity: 0.95 }} />
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span
+                  style={{
+                    color: "#ffffff",
+                    fontSize: "26px",
+                    fontWeight: 800,
+                    letterSpacing: "1px",
+                  }}
+                >
+                  VOX254
+                </span>
+                <span
+                  style={{
+                    color: "#f5c518",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    letterSpacing: "2px",
+                  }}
+                >
+                  THE VOICE OF 254
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  background: "#f5c518",
+                  color: "#111111",
+                  fontSize: "18px",
+                  fontWeight: 800,
+                  letterSpacing: "2px",
+                  padding: "10px 26px",
+                  borderRadius: "999px",
+                }}
+              >
+                {style.label}
+              </div>
+              {/* Honest disclosure: this is a real photo of the person,
+                  not a photo confirmed to be from this specific event. */}
+              <div
+                style={{
+                  display: "flex",
+                  background: "rgba(0,0,0,0.45)",
+                  color: "rgba(255,255,255,0.85)",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  letterSpacing: "1.5px",
+                  padding: "6px 16px",
+                  borderRadius: "999px",
+                }}
+              >
+                FILE PHOTO
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: "flex",
+              flexDirection: "column",
+              padding: "0 56px 40px 56px",
+              gap: "20px",
+            }}
+          >
+            <div
+              style={{
+                width: "90px",
+                height: "6px",
+                background: "#f5c518",
+                display: "flex",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                color: "#ffffff",
+                fontSize: "50px",
                 fontWeight: 800,
                 lineHeight: 1.2,
                 maxWidth: "1050px",
