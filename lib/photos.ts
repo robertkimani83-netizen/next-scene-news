@@ -65,6 +65,14 @@ export interface MatchedPhoto {
   fallbackCategory: PhotoCategory | null;
   visionConfidence?: number;
   visionReason?: string;
+  // Set only on a branded fallback (isFallback: true) when a real,
+  // person-verified photo was found but rejected ONLY for not proving
+  // it depicts this specific event (personMatch passed, eventMatch did
+  // not). Softens the fallback card's look with a real, honestly-labeled
+  // "file photo" background instead of a plain solid color, without ever
+  // claiming it's from the specific story's event.
+  softBackgroundUrl?: string;
+  softBackgroundCredit?: string;
 }
 
 interface Candidate {
@@ -1267,7 +1275,8 @@ function rankCandidate(
 
 function brandedFallback(
   entities: ArticleEntities | null,
-  fallbackTerms: string
+  fallbackTerms: string,
+  softBackground?: { candidate: Candidate }
 ): MatchedPhoto {
   const category =
     detectFallbackCategory(
@@ -1286,6 +1295,12 @@ function brandedFallback(
     relevanceScore: 0,
     isFallback: true,
     fallbackCategory: category,
+    ...(softBackground
+      ? {
+          softBackgroundUrl: softBackground.candidate.url,
+          softBackgroundCredit: buildCredit(softBackground.candidate),
+        }
+      : {}),
   };
 }
 
@@ -1324,6 +1339,15 @@ export async function findMatchingPhoto(
     entities,
     fallbackTerms
   );
+
+  // A real, person-verified photo that was rejected ONLY for not proving
+  // it depicts this specific event - kept as a fallback-card background
+  // rather than discarded, since it's still an honest photo of the actual
+  // person (just not confirmed to be from this particular story's event).
+  // Keeps the FIRST one found (rounds run most-specific-first, so an
+  // earlier round's near-miss is generally a stronger match than a later
+  // round's).
+  let softCandidate: Candidate | null = null;
 
   for (const round of rounds) {
     const searchPromises: Promise<Candidate[]>[] = [];
@@ -1475,6 +1499,13 @@ export async function findMatchingPhoto(
             `event match too weak (${vision.eventMatch}%).`
         );
 
+        // Still a genuinely verified photo of the right person - keep it
+        // in reserve as an honest fallback-card background rather than
+        // throwing it away entirely.
+        if (!softCandidate && vision.personMatch >= 85) {
+          softCandidate = item.candidate;
+        }
+
         continue;
       }
 
@@ -1510,12 +1541,16 @@ export async function findMatchingPhoto(
   // ---------------------------------------------------------
 
   console.log(
-    "[VOX254 PHOTO] No verified photograph found. " +
-      "Using branded VOX254 fallback."
+    softCandidate
+      ? "[VOX254 PHOTO] No fully-verified photograph found - using a " +
+          "verified person photo as a soft fallback background."
+      : "[VOX254 PHOTO] No verified photograph found. " +
+          "Using branded VOX254 fallback."
   );
 
   return brandedFallback(
     entities,
-    fallbackTerms
+    fallbackTerms,
+    softCandidate ? { candidate: softCandidate } : undefined
   );
 }
