@@ -70,10 +70,14 @@ export async function postToX(
   caption: string,
   articleLink: string
 ): Promise<{ tweetId: string }> {
-  const consumerKey = process.env.X_API_KEY;
-  const consumerSecret = process.env.X_API_SECRET;
-  const token = process.env.X_ACCESS_TOKEN;
-  const tokenSecret = process.env.X_ACCESS_TOKEN_SECRET;
+  // .trim() guards against a stray space/newline from copy-pasting a
+  // secret into Vercel's env var UI - even one invisible character here
+  // breaks the OAuth signature and produces "Bad Authentication data"
+  // (error 215) with no other indication of what's wrong.
+  const consumerKey = process.env.X_API_KEY?.trim();
+  const consumerSecret = process.env.X_API_SECRET?.trim();
+  const token = process.env.X_ACCESS_TOKEN?.trim();
+  const tokenSecret = process.env.X_ACCESS_TOKEN_SECRET?.trim();
   if (!consumerKey || !consumerSecret || !token || !tokenSecret) {
     throw new Error("X (Twitter) credentials not set");
   }
