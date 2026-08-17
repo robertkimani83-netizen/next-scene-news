@@ -4,7 +4,9 @@ import Link from "next/link";
 import ArticleImage from "@/components/ArticleImage";
 import type { Metadata } from "next";
 
-const BASE_URL = "https://next-scene-news-897q.vercel.app";
+const BASE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  "https://next-scene-news-897q.vercel.app";
 
 type Props = {
   params: Promise<{ id: string }>;
