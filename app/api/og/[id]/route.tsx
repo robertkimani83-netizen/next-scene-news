@@ -3,7 +3,7 @@ import { getArticleById } from "@/lib/store";
 
 export const runtime = "edge";
 
-const CATEGORY_STYLES: Record
+const CATEGORY_STYLES: Record<
   string,
   { from: string; to: string; label: string }
 > = {
