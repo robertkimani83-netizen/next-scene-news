@@ -31,8 +31,22 @@ async function ffmpeg(args) {
 const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
-function escapeDrawtext(s) {
-  return s.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+/** Escapes a filesystem path for safe use inside an ffmpeg filtergraph string. */
+function escapeFilterPath(p) {
+  return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+// All drawtext calls below use `textfile=` rather than `text='...'`. The
+// filtergraph "quoting" method for embedding an apostrophe in a quoted value
+// — close the quote, insert an escaped quote, reopen: 'Crime d'\''Amour',
+// straight from ffmpeg's own docs — was tried and verified NOT to render at
+// all in this ffmpeg build (blank output, no error) the moment the text
+// contains a quote character (e.g. "Côte d'Ivoire", which broke a real run).
+// Pointing drawtext at a plain text file sidesteps filtergraph escaping
+// entirely — verified working with apostrophes, colons, commas, brackets.
+async function writeDrawtextFile(text, filePath) {
+  await fs.writeFile(filePath, text, "utf-8");
+  return filePath;
 }
 
 /** Renders a branded text card (channel name + tagline, or a subscribe
@@ -45,9 +59,11 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
   const dur = Math.max(durationSec, 1).toFixed(2);
   const [main, sub] = lines;
 
-  let vf = `drawtext=fontfile=${FONT_BOLD}:text='${escapeDrawtext(main)}':fontcolor=white:fontsize=${fontsize}:x=(w-text_w)/2:y=(h-text_h)/2${sub ? "-36" : ""}`;
+  const mainFile = await writeDrawtextFile(main, `${outPath}.main.txt`);
+  let vf = `drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${fontsize}:x=(w-text_w)/2:y=(h-text_h)/2${sub ? "-36" : ""}`;
   if (sub) {
-    vf += `,drawtext=fontfile=${FONT_REGULAR}:text='${escapeDrawtext(sub)}':fontcolor=white:fontsize=${subFontsize}:x=(w-text_w)/2:y=(h-text_h)/2+40`;
+    const subFile = await writeDrawtextFile(sub, `${outPath}.sub.txt`);
+    vf += `,drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=white:fontsize=${subFontsize}:x=(w-text_w)/2:y=(h-text_h)/2+40`;
   }
 
   await ffmpeg([
@@ -107,14 +123,16 @@ async function overlayCountryBadge(inputPath, badge, dur, outPath) {
   const parts = ["[1:v]scale=-1:150[flag]", "[0:v][flag]overlay=x=60:y=650[b0]"];
   let last = "b0";
   if (rankText) {
+    const rankFile = await writeDrawtextFile(rankText, `${outPath}.rank.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_BOLD}:text='${escapeDrawtext(rankText)}':fontcolor=black:fontsize=60:box=1:boxcolor=0xFFD700:boxborderw=16:x=60:y=550[b1]`
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(rankFile)}:fontcolor=black:fontsize=60:box=1:boxcolor=0xFFD700:boxborderw=16:x=60:y=550[b1]`
     );
     last = "b1";
   }
   if (nameText) {
+    const nameFile = await writeDrawtextFile(nameText, `${outPath}.name.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_BOLD}:text='${escapeDrawtext(nameText)}':fontcolor=white:fontsize=38:box=1:boxcolor=black@0.6:boxborderw=12:x=60:y=815[b2]`
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(nameFile)}:fontcolor=white:fontsize=38:box=1:boxcolor=black@0.6:boxborderw=12:x=60:y=815[b2]`
     );
     last = "b2";
   }
@@ -164,11 +182,6 @@ async function writeSrt(capSegments, srtPath) {
       `${i + 1}\n${srtTimestamp(seg.startSec)} --> ${srtTimestamp(seg.startSec + seg.durationSec)}\n${seg.text}\n`
   );
   await fs.writeFile(srtPath, blocks.join("\n"), "utf-8");
-}
-
-/** Escapes a filesystem path for safe use inside an ffmpeg filtergraph string. */
-function escapeFilterPath(p) {
-  return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
 /** Burns captions into the video (requires ffmpeg built with libass, and a
