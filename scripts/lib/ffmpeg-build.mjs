@@ -58,10 +58,8 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
   ]);
 }
 
-/** Turns one segment's visual into a silent, fixed-duration 1080p clip. */
-async function renderSegmentClip(visual, durationSec, outPath) {
-  const dur = Math.max(durationSec, 0.6).toFixed(2); // floor so ultra-short sentences still show something
-
+/** Renders the base clip for one segment's visual (no badge). */
+async function renderBaseClip(visual, dur, outPath) {
   if (visual.type === "title-card") {
     await renderTitleCard(visual.lines, parseFloat(dur), outPath, {
       bg: visual.bg ?? "black",
@@ -98,6 +96,55 @@ async function renderSegmentClip(visual, durationSec, outPath) {
   ]);
 }
 
+/** Overlays a Top-10 style rank badge (number + flag + country name) in the
+ * bottom-left corner, stacked above the caption area — matching the
+ * channel's thumbnail style (numbered flag cards). Only called when a real
+ * flag image was successfully fetched; skipped entirely otherwise. */
+async function overlayCountryBadge(inputPath, badge, dur, outPath) {
+  const rankText = badge.rank != null ? String(badge.rank) : "";
+  const nameText = badge.countryName || "";
+
+  const parts = ["[1:v]scale=-1:150[flag]", "[0:v][flag]overlay=x=60:y=650[b0]"];
+  let last = "b0";
+  if (rankText) {
+    parts.push(
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:text='${escapeDrawtext(rankText)}':fontcolor=black:fontsize=60:box=1:boxcolor=0xFFD700:boxborderw=16:x=60:y=550[b1]`
+    );
+    last = "b1";
+  }
+  if (nameText) {
+    parts.push(
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:text='${escapeDrawtext(nameText)}':fontcolor=white:fontsize=38:box=1:boxcolor=black@0.6:boxborderw=12:x=60:y=815[b2]`
+    );
+    last = "b2";
+  }
+
+  await ffmpeg([
+    "-i", inputPath,
+    "-loop", "1", "-i", badge.flagPath,
+    "-filter_complex", parts.join(";"),
+    "-map", `[${last}]`,
+    "-t", dur,
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+    outPath,
+  ]);
+}
+
+/** Turns one segment's visual into a silent, fixed-duration 1080p clip,
+ * with an optional Top-10 rank/flag/country-name badge (visual.badge). */
+async function renderSegmentClip(visual, durationSec, outPath) {
+  const dur = Math.max(durationSec, 0.6).toFixed(2); // floor so ultra-short sentences still show something
+
+  if (!visual.badge) {
+    await renderBaseClip(visual, dur, outPath);
+    return;
+  }
+
+  const basePath = outPath.replace(/\.mp4$/, "_base.mp4");
+  await renderBaseClip(visual, dur, basePath);
+  await overlayCountryBadge(basePath, visual.badge, dur, outPath);
+}
+
 function srtTimestamp(sec) {
   const ms = Math.max(0, Math.round(sec * 1000));
   const h = Math.floor(ms / 3600000);
@@ -126,10 +173,11 @@ function escapeFilterPath(p) {
 
 /** Burns captions into the video (requires ffmpeg built with libass, and a
  * font available via fontconfig — install `fonts-dejavu-core` in CI).
- * BorderStyle=1 is an outline only — no filled background box behind the text. */
+ * BorderStyle=1 is an outline only — no filled background box behind the
+ * text; Alignment=2 pins it bottom-center regardless of player/theme defaults. */
 async function burnSubtitles(inputPath, srtPath, outPath) {
   const style =
-    "FontName=DejaVu Sans,FontSize=24,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2.5,Shadow=1,MarginV=60";
+    "FontName=DejaVu Sans,FontSize=18,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=45";
   await ffmpeg([
     "-i", inputPath,
     "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,

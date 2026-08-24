@@ -17,7 +17,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
-import { fetchVisualForSegment } from "./lib/visuals.mjs";
+import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary } from "./lib/ffmpeg-build.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -51,7 +51,6 @@ const SUBSCRIBE_VISUAL_QUERY = "smartphone social media scrolling";
 // exact TTS timing and a branded title-card visual instead of stock footage.
 const INTRO_LINE = "Welcome to NextScene TV — the future uncovered.";
 const OUTRO_LINE = "Thanks for watching. Subscribe to NextScene TV for more videos like this one.";
-const INTRO_CARD_LINES = ["NEXTSCENE TV", "THE FUTURE UNCOVERED"];
 const OUTRO_CARD_LINES = ["SUBSCRIBE FOR MORE", "NEXTSCENE TV — THE FUTURE UNCOVERED"];
 
 /** Ask Gemini for a documentary script broken into narratable sentences,
@@ -66,7 +65,13 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
 {
   "title": "a short punchy YouTube title, under 70 characters",
   "segments": [
-    { "text": "one narration sentence", "location": "the specific country or city this sentence is about, e.g. 'Kenya' or 'Shanghai, China' — empty string \"\" if the sentence doesn't name a specific place", "visualQuery": "2-5 word stock footage search phrase for this sentence, e.g. 'Shanghai skyline night' — if a place is named, the phrase MUST include that place's name" }
+    {
+      "text": "one narration sentence",
+      "location": "the specific country or city this sentence is about, e.g. 'Kenya' or 'Shanghai, China' — empty string \"\" if the sentence doesn't name a specific place",
+      "visualQuery": "2-5 word stock footage search phrase for this sentence, e.g. 'Shanghai skyline night' — if a place is named, the phrase MUST include that place's name",
+      "rank": "if this topic is a numbered ranking (Top 10, etc.) and this sentence is the one revealing one specific entry, the number for that entry as it's spoken in the narration (e.g. 10, 9, ... 1, or 1, 2, ... 10 — whichever direction you're counting in) — use null for every segment if this topic isn't a numbered ranking, and null for segments (like the hook or a wrap-up line) that aren't revealing a specific ranked entry",
+      "countryCode": "ISO 3166-1 alpha-2 two-letter country code in lowercase matching location, e.g. 'ke' for Kenya, 'cn' for China — empty string \"\" if location is empty"
+    }
   ]
 }
 Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every segment about a specific country MUST name that country in both "location" and "visualQuery" — never leave the visual generic when a real place is being discussed, since the footage needs to visibly match the country being talked about.`;
@@ -176,7 +181,10 @@ async function main() {
   });
 
   // add a spoken intro and outro so they're part of the same one continuous
-  // narration pass — exact TTS timing, no separate silence-padding needed
+  // narration pass — exact TTS timing, no separate silence-padding needed.
+  // The intro card shows the real episode title (thumbnail-style headline)
+  // above the channel tagline; the spoken line stays a generic welcome.
+  const introCardLines = [script.title.toUpperCase(), "NEXTSCENE TV — THE FUTURE UNCOVERED"];
   script.segments.unshift({ text: INTRO_LINE, location: "", visualQuery: "", isIntro: true });
   script.segments.push({ text: OUTRO_LINE, location: "", visualQuery: "", isOutro: true });
 
@@ -200,8 +208,8 @@ async function main() {
     };
     let visual;
     if (script.segments[i].isIntro) {
-      visual = { type: "title-card", lines: INTRO_CARD_LINES };
-      console.log(`  segment ${i}: intro card (${timing.durationSec.toFixed(1)}s)`);
+      visual = { type: "title-card", lines: introCardLines, fontsize: 58 };
+      console.log(`  segment ${i}: intro card — "${script.title}" (${timing.durationSec.toFixed(1)}s)`);
     } else if (script.segments[i].isOutro) {
       visual = { type: "title-card", lines: OUTRO_CARD_LINES };
       console.log(`  segment ${i}: outro card (${timing.durationSec.toFixed(1)}s)`);
@@ -216,6 +224,23 @@ async function main() {
       });
       const matched = visual?.matchedTerm ? ` matched "${visual.matchedTerm}"` : "";
       console.log(`  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"}${matched} — wanted "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`);
+
+      // Top-10 style rank badge: number + flag + country name, bottom-left,
+      // only when this segment has a country code Gemini gave us — silently
+      // skipped (no badge) if the flag download fails for any reason.
+      if (visual && script.segments[i].countryCode) {
+        const flagPath = await fetchFlag(script.segments[i].countryCode, runDir).catch(() => null);
+        if (flagPath) {
+          visual.badge = {
+            rank: script.segments[i].rank ?? null,
+            countryName: script.segments[i].location || "",
+            flagPath,
+          };
+          console.log(`    + badge: rank ${visual.badge.rank ?? "—"}, flag ${script.segments[i].countryCode}`);
+        } else {
+          console.warn(`    flag fetch failed for "${script.segments[i].countryCode}" — no badge for this segment`);
+        }
+      }
     }
     segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }

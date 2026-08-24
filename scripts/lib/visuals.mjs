@@ -121,3 +121,27 @@ export async function fetchVisualForSegment({ query, location } = {}, outDir, in
   // back to a branded placeholder/title card rather than leaving a gap.
   return null;
 }
+
+/**
+ * Downloads a country flag PNG from flagcdn.com — a free, no-key-required
+ * public CDN (https://flagcdn.com/h240/{code}.png) — for the Top-10 style
+ * rank badge overlay. Returns null (never throws) if the code is missing/
+ * malformed or the download fails, so a bad/unknown code just skips the
+ * badge rather than breaking the segment.
+ *
+ * @param {string} countryCode - ISO 3166-1 alpha-2 code, e.g. "ke" for Kenya
+ * @param {string} outDir
+ */
+export async function fetchFlag(countryCode, outDir) {
+  const code = (countryCode || "").trim().toLowerCase();
+  if (!/^[a-z]{2}$/.test(code)) return null;
+
+  await fs.mkdir(outDir, { recursive: true });
+  const dest = path.join(outDir, `flag_${code}.png`);
+  try {
+    await downloadTo(`https://flagcdn.com/h240/${code}.png`, dest);
+    return dest;
+  } catch {
+    return null;
+  }
+}
