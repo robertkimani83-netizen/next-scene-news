@@ -41,6 +41,19 @@ function pickTopic() {
   return TOPIC_POOL[Math.floor(Math.random() * TOPIC_POOL.length)];
 }
 
+// Spoken mid-roll reminder — inserted into the narration itself so it's
+// voiced and captioned exactly like every other sentence. It gets a normal
+// fetched visual like any other segment (no special card) — voice-over only.
+const SUBSCRIBE_LINE = "If you're finding this useful, hit subscribe — it really helps this channel grow.";
+const SUBSCRIBE_VISUAL_QUERY = "smartphone social media scrolling";
+
+// Intro/outro are also real spoken lines (not silent cards) — they get
+// exact TTS timing and a branded title-card visual instead of stock footage.
+const INTRO_LINE = "Welcome to NextScene TV — the future uncovered.";
+const OUTRO_LINE = "Thanks for watching. Subscribe to NextScene TV for more videos like this one.";
+const INTRO_CARD_LINES = ["NEXTSCENE TV", "THE FUTURE UNCOVERED"];
+const OUTRO_CARD_LINES = ["SUBSCRIBE FOR MORE", "NEXTSCENE TV — THE FUTURE UNCOVERED"];
+
 /** Ask Gemini for a documentary script broken into narratable sentences,
  * each paired with a short visual search phrase. Falls back across a few
  * free Gemini models the same way the VOX254 pipeline does. */
@@ -152,6 +165,21 @@ async function main() {
   const script = await generateScript(topic);
   console.log(`[script] title: ${script.title} (${script.segments.length} segments)`);
 
+  // splice the subscribe reminder into the middle of the script so it's
+  // narrated in sequence, not just appended at the end
+  const midIndex = Math.max(1, Math.floor(script.segments.length / 2));
+  script.segments.splice(midIndex, 0, {
+    text: SUBSCRIBE_LINE,
+    location: "",
+    visualQuery: SUBSCRIBE_VISUAL_QUERY,
+    isSubscribeCTA: true,
+  });
+
+  // add a spoken intro and outro so they're part of the same one continuous
+  // narration pass — exact TTS timing, no separate silence-padding needed
+  script.segments.unshift({ text: INTRO_LINE, location: "", visualQuery: "", isIntro: true });
+  script.segments.push({ text: OUTRO_LINE, location: "", visualQuery: "", isOutro: true });
+
   const fullNarration = script.segments.map((s) => s.text).join(" ");
   console.log("[tts] synthesizing narration (en-US-ChristopherNeural)...");
   const { audioPath, sentences } = await synthesizeNarration(fullNarration, runDir);
@@ -170,21 +198,30 @@ async function main() {
       // fallback: split total narration duration evenly if boundaries misaligned
       durationSec: (sentences.at(-1)?.startSec + sentences.at(-1)?.durationSec || 60) / script.segments.length,
     };
-    const visual = await fetchVisualForSegment(
-      { query: script.segments[i].visualQuery, location: script.segments[i].location },
-      runDir,
-      i
-    ).catch((err) => {
-      console.warn(`[visuals] segment ${i} ("${script.segments[i].visualQuery}") failed: ${err.message}`);
-      return null;
-    });
-    const matched = visual?.matchedTerm ? ` matched "${visual.matchedTerm}"` : "";
-    console.log(`  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"}${matched} — wanted "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`);
+    let visual;
+    if (script.segments[i].isIntro) {
+      visual = { type: "title-card", lines: INTRO_CARD_LINES };
+      console.log(`  segment ${i}: intro card (${timing.durationSec.toFixed(1)}s)`);
+    } else if (script.segments[i].isOutro) {
+      visual = { type: "title-card", lines: OUTRO_CARD_LINES };
+      console.log(`  segment ${i}: outro card (${timing.durationSec.toFixed(1)}s)`);
+    } else {
+      visual = await fetchVisualForSegment(
+        { query: script.segments[i].visualQuery, location: script.segments[i].location },
+        runDir,
+        i
+      ).catch((err) => {
+        console.warn(`[visuals] segment ${i} ("${script.segments[i].visualQuery}") failed: ${err.message}`);
+        return null;
+      });
+      const matched = visual?.matchedTerm ? ` matched "${visual.matchedTerm}"` : "";
+      console.log(`  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"}${matched} — wanted "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`);
+    }
     segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }
 
   const outputPath = path.join(runDir, "final.mp4");
-  console.log("[ffmpeg] assembling synced video...");
+  console.log("[ffmpeg] assembling synced video (with voiced intro/outro)...");
   await buildDocumentary(segmentsForBuild, audioPath, path.join(runDir, "work"), outputPath);
   console.log(`[done] video ready: ${outputPath}`);
 

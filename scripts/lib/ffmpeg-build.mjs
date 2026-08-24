@@ -28,9 +28,48 @@ async function ffmpeg(args) {
   }
 }
 
+const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+const FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+
+function escapeDrawtext(s) {
+  return s.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+/** Renders a branded text card (channel name + tagline, or a subscribe
+ * reminder) as a fixed-duration 1080p clip — used for the intro and outro.
+ * These are voiced like any other segment (real narration plays over them),
+ * so the duration passed in is the actual TTS timing for that line, not a
+ * fixed guess. */
+async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
+  const { bg = "black", fontsize = 72, subFontsize = 32 } = opts;
+  const dur = Math.max(durationSec, 1).toFixed(2);
+  const [main, sub] = lines;
+
+  let vf = `drawtext=fontfile=${FONT_BOLD}:text='${escapeDrawtext(main)}':fontcolor=white:fontsize=${fontsize}:x=(w-text_w)/2:y=(h-text_h)/2${sub ? "-36" : ""}`;
+  if (sub) {
+    vf += `,drawtext=fontfile=${FONT_REGULAR}:text='${escapeDrawtext(sub)}':fontcolor=white:fontsize=${subFontsize}:x=(w-text_w)/2:y=(h-text_h)/2+40`;
+  }
+
+  await ffmpeg([
+    "-f", "lavfi", "-i", `color=c=${bg}:s=${WIDTH}x${HEIGHT}:d=${dur}:r=30`,
+    "-vf", vf,
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+    outPath,
+  ]);
+}
+
 /** Turns one segment's visual into a silent, fixed-duration 1080p clip. */
 async function renderSegmentClip(visual, durationSec, outPath) {
   const dur = Math.max(durationSec, 0.6).toFixed(2); // floor so ultra-short sentences still show something
+
+  if (visual.type === "title-card") {
+    await renderTitleCard(visual.lines, parseFloat(dur), outPath, {
+      bg: visual.bg ?? "black",
+      fontsize: visual.fontsize,
+      subFontsize: visual.subFontsize,
+    });
+    return;
+  }
 
   if (visual.type === "video") {
     await ffmpeg([
@@ -86,10 +125,11 @@ function escapeFilterPath(p) {
 }
 
 /** Burns captions into the video (requires ffmpeg built with libass, and a
- * font available via fontconfig — install `fonts-dejavu-core` in CI). */
+ * font available via fontconfig — install `fonts-dejavu-core` in CI).
+ * BorderStyle=1 is an outline only — no filled background box behind the text. */
 async function burnSubtitles(inputPath, srtPath, outPath) {
   const style =
-    "FontName=DejaVu Sans,FontSize=22,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=60";
+    "FontName=DejaVu Sans,FontSize=24,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2.5,Shadow=1,MarginV=60";
   await ffmpeg([
     "-i", inputPath,
     "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,
@@ -101,7 +141,12 @@ async function burnSubtitles(inputPath, srtPath, outPath) {
 
 /**
  * @param {Array<{visual: {type:string,path:string}|null, durationSec: number, text?: string}>} segments
- * @param {string} narrationAudioPath
+ *   `visual.type` can be "video", "image", or "title-card" ({lines, bg?, fontsize?, subFontsize?}) —
+ *   the latter is how a spoken intro/outro line gets a branded card instead of stock footage while
+ *   still using the same real TTS-derived duration and getting captioned like any other segment.
+ * @param {string} narrationAudioPath - one continuous narration track covering every segment in order
+ *   (intro/outro/subscribe-reminder lines included) — since it's all one TTS pass, video and audio
+ *   stay in sync automatically with no separate padding step needed.
  * @param {string} workDir - scratch directory for intermediate files
  * @param {string} outputPath - final MP4 path
  * @param {string|null} placeholderImage - branded fallback image path used when a segment has no visual
@@ -157,7 +202,7 @@ export async function buildDocumentary(
     videoForMux = subtitledPath;
   }
 
-  // lay the narration track on top; -shortest guards against tiny drift
+  // lay the one continuous narration track on top; -shortest guards against tiny drift
   await ffmpeg([
     "-i", videoForMux,
     "-i", narrationAudioPath,
