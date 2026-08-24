@@ -1,24 +1,20 @@
 {
-  "name": "next-scene-news",
+  "name": "nextscene-documentary",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
+  "description": "Automated documentary-style video pipeline for the NEXTSCENE TV YouTube channel: AI script -> free human-sounding narration -> real synced video clips/photos -> upload.",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
     "generate": "node scripts/generate-documentary.mjs",
-    "test-no-upload": "node scripts/generate-documentary.mjs --no-upload"
+    "test-no-upload": "node scripts/generate-documentary.mjs --no-upload",
+    "generate-short": "node scripts/generate-short.mjs",
+    "test-short-no-upload": "node scripts/generate-short.mjs --no-upload"
   },
   "dependencies": {
-    "next": "^14.2.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "rss-parser": "^3.13.0",
+    "googleapis": "^144.0.0",
     "msedge-tts": "^2.0.7"
   },
-  "devDependencies": {
-    "@types/node": "^20.14.0",
-    "@types/react": "^18.3.0",
-    "typescript": "^5.5.0"
+  "engines": {
+    "node": ">=18"
   }
 }

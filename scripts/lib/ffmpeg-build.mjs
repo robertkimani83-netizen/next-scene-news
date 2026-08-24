@@ -4,6 +4,15 @@
 // concatenated and the narration track is laid on top. Photos get a subtle
 // Ken Burns pan/zoom so a still image doesn't look static next to real clips.
 //
+// Supports two canvas shapes via the `dims` option: landscape 1920x1080
+// (long-form videos) and portrait 1080x1920 (YouTube Shorts) — every overlay
+// position/size below is computed from `dims` rather than hardcoded, so the
+// same rendering code produces both formats. Positions that depend on
+// available horizontal room (font sizes, logo/badge scale, left margins)
+// scale with width; vertical placement (y-offsets) scales with height —
+// see scaleX/scaleY. Landscape values match the original hand-tuned pixel
+// numbers exactly (scale factor 1.0), so long-form output is unchanged.
+//
 // Assumes `ffmpeg` is on PATH (installed via `apt-get install -y ffmpeg` in
 // the GitHub Actions workflow — the same approach already working for the
 // VOX254 news-video pipeline, avoiding the ffmpeg-static ENOENT issues hit
@@ -16,8 +25,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const run = promisify(execFile);
-const WIDTH = 1920;
-const HEIGHT = 1080;
+
+// Landscape (long-form) is the reference canvas every hand-tuned pixel value
+// below was designed against — scaleX/scaleY convert those numbers to
+// whatever `dims` the caller actually wants (see LANDSCAPE_DIMS/PORTRAIT_DIMS).
+const REFERENCE_WIDTH = 1920;
+const REFERENCE_HEIGHT = 1080;
+
+export const LANDSCAPE_DIMS = { width: 1920, height: 1080 };
+export const PORTRAIT_DIMS = { width: 1080, height: 1920 };
+
+function scaleX(px, dims) {
+  return Math.round(px * (dims.width / REFERENCE_WIDTH));
+}
+function scaleY(px, dims) {
+  return Math.round(px * (dims.height / REFERENCE_HEIGHT));
+}
 
 // Branded assets/colors for the title-card redesign (matches the channel's
 // existing thumbnail style: real background photo, logo badge top-left,
@@ -59,9 +82,9 @@ async function writeDrawtextFile(text, filePath) {
 }
 
 /** Renders a branded text card (channel name + tagline, or a subscribe
- * reminder) as a fixed-duration 1080p clip — used for the intro and outro.
- * These are voiced like any other segment (real narration plays over them),
- * so the duration passed in is the actual TTS timing for that line, not a
+ * reminder) as a fixed-duration clip — used for the intro and outro. These
+ * are voiced like any other segment (real narration plays over them), so
+ * the duration passed in is the actual TTS timing for that line, not a
  * fixed guess.
  *
  * Styled to match the channel's existing YouTube thumbnails: a real
@@ -73,16 +96,22 @@ async function writeDrawtextFile(text, filePath) {
  * missing (no visual found, or none requested) this falls back to a flat
  * `opts.bg` color card so the video never breaks for lack of a photo. */
 async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
-  const { bg = "black", fontsize = 72, subFontsize = 32, bgVisual = null } = opts;
+  const {
+    bg = "black",
+    fontsize = 72,
+    subFontsize = 32,
+    bgVisual = null,
+    dims = LANDSCAPE_DIMS,
+  } = opts;
   const dur = Math.max(durationSec, 1).toFixed(2);
   const [main, sub] = lines;
 
   const bgClipPath = `${outPath}.bg.mp4`;
   if (bgVisual) {
-    await renderBaseClip(bgVisual, dur, bgClipPath);
+    await renderBaseClip(bgVisual, dur, bgClipPath, dims);
   } else {
     await ffmpeg([
-      "-f", "lavfi", "-i", `color=c=${bg}:s=${WIDTH}x${HEIGHT}:d=${dur}:r=30`,
+      "-f", "lavfi", "-i", `color=c=${bg}:s=${dims.width}x${dims.height}:d=${dur}:r=30`,
       "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
       bgClipPath,
     ]);
@@ -91,19 +120,29 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
   const mainFile = await writeDrawtextFile(main, `${outPath}.main.txt`);
   const wordmarkFile = await writeDrawtextFile("NEXT SCENE TV", `${outPath}.wordmark.txt`);
 
+  const titleFontsize = scaleX(fontsize, dims);
+  const subFs = scaleX(subFontsize, dims);
+  const logoH = scaleX(130, dims);
+  const margin = scaleX(50, dims);
+  const marginTop = scaleY(40, dims);
+  const wordmarkY = scaleY(55, dims);
+  const wordmarkFontsize = scaleX(30, dims);
+  const wordmarkBoxBorder = scaleX(14, dims);
+  const subGap = scaleY(40, dims);
+
   const parts = [
     // dim the photo so white/gold text stays readable over busy backgrounds
     `[0:v]drawbox=x=0:y=0:w=iw:h=ih:color=black@0.45:t=fill[dimmed]`,
-    `[1:v]scale=-1:130[logo]`,
-    `[dimmed][logo]overlay=x=50:y=40[b0]`,
-    `[b0]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(wordmarkFile)}:fontcolor=white:fontsize=30:box=1:boxcolor=${BRAND_RED}:boxborderw=14:x=w-text_w-50:y=55[b1]`,
-    `[b1]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${fontsize}:bordercolor=black:borderw=3:x=(w-text_w)/2:y=(h-text_h)/2${sub ? "-36" : ""}[b2]`,
+    `[1:v]scale=-1:${logoH}[logo]`,
+    `[dimmed][logo]overlay=x=${margin}:y=${marginTop}[b0]`,
+    `[b0]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(wordmarkFile)}:fontcolor=white:fontsize=${wordmarkFontsize}:box=1:boxcolor=${BRAND_RED}:boxborderw=${wordmarkBoxBorder}:x=w-text_w-${margin}:y=${wordmarkY}[b1]`,
+    `[b1]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${titleFontsize}:bordercolor=black:borderw=3:x=(w-text_w)/2:y=(h-text_h)/2${sub ? `-${scaleY(36, dims)}` : ""}[b2]`,
   ];
   let last = "b2";
   if (sub) {
     const subFile = await writeDrawtextFile(sub, `${outPath}.sub.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=${BRAND_GOLD}:fontsize=${subFontsize}:bordercolor=black:borderw=2:x=(w-text_w)/2:y=(h-text_h)/2+40[b3]`
+      `[${last}]drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=${BRAND_GOLD}:fontsize=${subFs}:bordercolor=black:borderw=2:x=(w-text_w)/2:y=(h-text_h)/2+${subGap}[b3]`
     );
     last = "b3";
   }
@@ -120,23 +159,26 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
 }
 
 /** Renders the base clip for one segment's visual (no badge). */
-async function renderBaseClip(visual, dur, outPath) {
+async function renderBaseClip(visual, dur, outPath, dims = LANDSCAPE_DIMS) {
   if (visual.type === "title-card") {
     await renderTitleCard(visual.lines, parseFloat(dur), outPath, {
       bg: visual.bg ?? "black",
       fontsize: visual.fontsize,
       subFontsize: visual.subFontsize,
       bgVisual: visual.bgVisual ?? null,
+      dims,
     });
     return;
   }
+
+  const { width, height } = dims;
 
   if (visual.type === "video") {
     await ffmpeg([
       "-stream_loop", "-1", // loop the source clip if it's shorter than needed
       "-i", visual.path,
       "-t", dur,
-      "-vf", `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},fps=30`,
+      "-vf", `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=30`,
       "-an",
       "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
       outPath,
@@ -151,34 +193,53 @@ async function renderBaseClip(visual, dur, outPath) {
     "-i", visual.path,
     "-t", dur,
     "-vf",
-      `scale=${WIDTH * 1.3}:${HEIGHT * 1.3}:force_original_aspect_ratio=increase,` +
-      `zoompan=z='min(zoom+0.0008,1.15)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${WIDTH}x${HEIGHT}:fps=30`,
+      `scale=${Math.round(width * 1.3)}:${Math.round(height * 1.3)}:force_original_aspect_ratio=increase,` +
+      `zoompan=z='min(zoom+0.0008,1.15)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=30`,
     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
     outPath,
   ]);
 }
 
 /** Overlays a Top-10 style rank badge (number + flag + country name) in the
- * bottom-left corner, stacked above the caption area — matching the
+ * lower portion of the frame, stacked above the caption area — matching the
  * channel's thumbnail style (numbered flag cards). Only called when a real
  * flag image was successfully fetched; skipped entirely otherwise. */
-async function overlayCountryBadge(inputPath, badge, dur, outPath) {
+async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSCAPE_DIMS) {
   const rankText = badge.rank != null ? String(badge.rank) : "";
   const nameText = badge.countryName || "";
 
-  const parts = ["[1:v]scale=-1:150[flag]", "[0:v][flag]overlay=x=60:y=650[b0]"];
+  // Vertical badge position is NOT a simple height-ratio scale of the
+  // landscape numbers: a portrait canvas is much narrower (1080 vs 1920),
+  // so the same caption wraps onto roughly twice as many lines and needs
+  // much more reserved space at the bottom — a naive proportional scale
+  // pushes the badge low enough that a wrapped caption collides with it
+  // (caught while testing the Shorts path). So portrait gets its own,
+  // higher-up tuned position instead, leaving a generous caption zone below.
+  const isPortrait = dims.height > dims.width;
+  const { flagY, rankY, nameY } = isPortrait
+    ? { flagY: 520, rankY: 430, nameY: 660 }
+    : { flagY: scaleY(650, dims), rankY: scaleY(550, dims), nameY: scaleY(815, dims) };
+
+  const flagH = scaleX(150, dims);
+  const margin = scaleX(60, dims);
+  const rankFontsize = scaleX(60, dims);
+  const rankBoxBorder = scaleX(16, dims);
+  const nameFontsize = scaleX(38, dims);
+  const nameBoxBorder = scaleX(12, dims);
+
+  const parts = [`[1:v]scale=-1:${flagH}[flag]`, `[0:v][flag]overlay=x=${margin}:y=${flagY}[b0]`];
   let last = "b0";
   if (rankText) {
     const rankFile = await writeDrawtextFile(rankText, `${outPath}.rank.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(rankFile)}:fontcolor=black:fontsize=60:box=1:boxcolor=0xFFD700:boxborderw=16:x=60:y=550[b1]`
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(rankFile)}:fontcolor=black:fontsize=${rankFontsize}:box=1:boxcolor=0xFFD700:boxborderw=${rankBoxBorder}:x=${margin}:y=${rankY}[b1]`
     );
     last = "b1";
   }
   if (nameText) {
     const nameFile = await writeDrawtextFile(nameText, `${outPath}.name.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(nameFile)}:fontcolor=white:fontsize=38:box=1:boxcolor=black@0.6:boxborderw=12:x=60:y=815[b2]`
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(nameFile)}:fontcolor=white:fontsize=${nameFontsize}:box=1:boxcolor=black@0.6:boxborderw=${nameBoxBorder}:x=${margin}:y=${nameY}[b2]`
     );
     last = "b2";
   }
@@ -194,19 +255,19 @@ async function overlayCountryBadge(inputPath, badge, dur, outPath) {
   ]);
 }
 
-/** Turns one segment's visual into a silent, fixed-duration 1080p clip,
- * with an optional Top-10 rank/flag/country-name badge (visual.badge). */
-async function renderSegmentClip(visual, durationSec, outPath) {
+/** Turns one segment's visual into a silent, fixed-duration clip, with an
+ * optional Top-10 rank/flag/country-name badge (visual.badge). */
+async function renderSegmentClip(visual, durationSec, outPath, dims = LANDSCAPE_DIMS) {
   const dur = Math.max(durationSec, 0.6).toFixed(2); // floor so ultra-short sentences still show something
 
   if (!visual.badge) {
-    await renderBaseClip(visual, dur, outPath);
+    await renderBaseClip(visual, dur, outPath, dims);
     return;
   }
 
   const basePath = outPath.replace(/\.mp4$/, "_base.mp4");
-  await renderBaseClip(visual, dur, basePath);
-  await overlayCountryBadge(basePath, visual.badge, dur, outPath);
+  await renderBaseClip(visual, dur, basePath, dims);
+  await overlayCountryBadge(basePath, visual.badge, dur, outPath, dims);
 }
 
 function srtTimestamp(sec) {
@@ -233,10 +294,25 @@ async function writeSrt(capSegments, srtPath) {
 /** Burns captions into the video (requires ffmpeg built with libass, and a
  * font available via fontconfig — install `fonts-dejavu-core` in CI).
  * BorderStyle=1 is an outline only — no filled background box behind the
- * text; Alignment=2 pins it bottom-center regardless of player/theme defaults. */
-async function burnSubtitles(inputPath, srtPath, outPath) {
+ * text; Alignment=2 pins it bottom-center regardless of player/theme defaults.
+ *
+ * IMPORTANT: `fontSize`/`marginV` are ASS style units, not literal output
+ * pixels — libass renders against a fixed default script resolution (its
+ * PlayResY, ~288, when the stream doesn't declare one, which a plain SRT
+ * never does) and then scales that render up to fill the real frame. That
+ * scale-up is proportional to frame height, so the SAME nominal fontSize
+ * already ends up occupying the same *fraction* of the frame regardless of
+ * whether the frame is 1080 or 1920 tall — measured and confirmed: 18/45
+ * produces a visually equivalent caption on both the landscape and portrait
+ * canvas. Do NOT scale these by dims — that double-counts libass's own
+ * scaling and produces oversized, overlapping captions (verified — this was
+ * an actual bug caught while testing the Shorts/portrait path). Bump
+ * fontSize a little for deliberately larger mobile captions if wanted, but
+ * treat it as a flat override, not a dims-derived multiplier. */
+async function burnSubtitles(inputPath, srtPath, outPath, dims = LANDSCAPE_DIMS, opts = {}) {
+  const { fontSize = 18, marginV = 45 } = opts;
   const style =
-    "FontName=DejaVu Sans,FontSize=18,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=45";
+    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=${marginV}`;
   await ffmpeg([
     "-i", inputPath,
     "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,
@@ -248,7 +324,7 @@ async function burnSubtitles(inputPath, srtPath, outPath) {
 
 /**
  * @param {Array<{visual: {type:string,path:string}|null, durationSec: number, text?: string}>} segments
- *   `visual.type` can be "video", "image", or "title-card" ({lines, bg?, fontsize?, subFontsize?}) —
+ *   `visual.type` can be "video", "image", or "title-card" ({lines, bg?, fontsize?, subFontsize?, bgVisual?}) —
  *   the latter is how a spoken intro/outro line gets a branded card instead of stock footage while
  *   still using the same real TTS-derived duration and getting captioned like any other segment.
  * @param {string} narrationAudioPath - one continuous narration track covering every segment in order
@@ -257,7 +333,10 @@ async function burnSubtitles(inputPath, srtPath, outPath) {
  * @param {string} workDir - scratch directory for intermediate files
  * @param {string} outputPath - final MP4 path
  * @param {string|null} placeholderImage - branded fallback image path used when a segment has no visual
- * @param {{subtitles?: boolean}} options - set subtitles:false to skip burning in captions
+ * @param {{subtitles?: boolean, dims?: {width:number,height:number}, captionFontSize?: number, captionMarginV?: number}} options -
+ *   `dims` picks the output canvas — LANDSCAPE_DIMS (1920x1080, default, long-form) or PORTRAIT_DIMS
+ *   (1080x1920, Shorts); every overlay position scales automatically to match. Set subtitles:false to
+ *   skip burning in captions.
  */
 export async function buildDocumentary(
   segments,
@@ -267,7 +346,7 @@ export async function buildDocumentary(
   placeholderImage = null,
   options = {}
 ) {
-  const { subtitles = true } = options;
+  const { subtitles = true, dims = LANDSCAPE_DIMS, captionFontSize, captionMarginV } = options;
   await fs.mkdir(workDir, { recursive: true });
 
   const clipPaths = [];
@@ -280,7 +359,7 @@ export async function buildDocumentary(
 
     const dur = Math.max(seg.durationSec, 0.6); // matches the floor renderSegmentClip applies
     const clipPath = path.join(workDir, `segment_${i}.mp4`);
-    await renderSegmentClip(visual, dur, clipPath);
+    await renderSegmentClip(visual, dur, clipPath, dims);
     clipPaths.push(clipPath);
 
     if (seg.text) {
@@ -305,7 +384,10 @@ export async function buildDocumentary(
     const srtPath = path.join(workDir, "captions.srt");
     await writeSrt(capSegments, srtPath);
     const subtitledPath = path.join(workDir, "visuals_subtitled.mp4");
-    await burnSubtitles(visualsOnly, srtPath, subtitledPath);
+    await burnSubtitles(visualsOnly, srtPath, subtitledPath, dims, {
+      fontSize: captionFontSize,
+      marginV: captionMarginV,
+    });
     videoForMux = subtitledPath;
   }
 

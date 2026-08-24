@@ -4,8 +4,14 @@
 // to the NEXTSCENE TV YouTube channel (reusing the OAuth refresh token
 // already set up for the VOX254 pipeline, since it's the same channel).
 //
+// This is the LONG-FORM pipeline (~60-90s, landscape 1920x1080). See
+// generate-short.mjs for the companion Shorts pipeline (~25-40s, portrait
+// 1080x1920) — they share script generation (lib/script-gen.mjs), TTS
+// (lib/tts.mjs), visuals (lib/visuals.mjs), video assembly
+// (lib/ffmpeg-build.mjs), and upload (lib/youtube.mjs).
+//
 // Required environment variables (all already exist as secrets in the
-// next-scene-news repo except TOPIC_LIST, which is optional):
+// next-scene-news repo):
 //   GEMINI_API_KEY
 //   PEXELS_API_KEY            (UNSPLASH_API_KEY optional fallback)
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
@@ -19,14 +25,16 @@ import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary } from "./lib/ffmpeg-build.mjs";
+import { generateScript, pickTopic } from "./lib/script-gen.mjs";
+import { uploadToYouTube } from "./lib/youtube.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const NO_UPLOAD = process.argv.includes("--no-upload");
 
 // NextScene TV's existing lane: Top 10 rankings, country/power comparisons,
-// "what's coming next" style predictions. Rotate through these so the topic
-// picker doesn't repeat itself; extend this list freely.
+// "what's coming next" style predictions. pickTopic() rotates through these
+// by hour so runs a few hours apart (the normal cadence for scheduled runs)
+// don't repeat a topic until the whole pool has been used — extend freely.
 const TOPIC_POOL = [
   "Top 10 countries with the most powerful militaries in the world right now",
   "Top 10 fastest growing economies in the world and why they're rising",
@@ -35,11 +43,18 @@ const TOPIC_POOL = [
   "Top 10 cities in the world investing the most in future technology",
   "Top 10 countries with the largest oil and gas reserves",
   "The most powerful passports in the world and what they reveal about global power",
+  "Top 10 countries leading the world in artificial intelligence development",
+  "Top 10 countries with the strongest currencies in the world",
+  "Top 10 countries most prepared for the next global pandemic",
+  "Top 10 countries with the fastest internet and digital infrastructure",
+  "Top 10 nations building the world's most advanced space programs",
+  "Top 10 countries with the largest gold reserves",
+  "The world's most influential trade alliances and what they mean for the future",
+  "Top 10 countries with the biggest defense budgets",
+  "Top 10 countries leading the global renewable energy race",
+  "The nations racing to control the world's rare earth minerals",
+  "Top 10 countries with the most billionaires and why they cluster there",
 ];
-
-function pickTopic() {
-  return TOPIC_POOL[Math.floor(Math.random() * TOPIC_POOL.length)];
-}
 
 // Spoken mid-roll reminder — inserted into the narration itself so it's
 // voiced and captioned exactly like every other sentence. It gets a normal
@@ -66,117 +81,11 @@ const OUTRO_CARD_LINES = ["SUBSCRIBE FOR MORE", "NEXTSCENE TV — THE FUTURE UNC
 const INTRO_BG_QUERY = "futuristic city skyline night aerial";
 const OUTRO_BG_QUERY = "city skyline night lights aerial";
 
-/** Ask Gemini for a documentary script broken into narratable sentences,
- * each paired with a short visual search phrase. Falls back across a few
- * free Gemini models the same way the VOX254 pipeline does. */
-async function generateScript(topic) {
-  const prompt = `Write a short documentary-style narration script (about 60-90 seconds spoken, roughly 150-220 words) on this topic: "${topic}".
-
-Style: authoritative, cinematic, "NEXTSCENE TV - THE FUTURE UNCOVERED" tone — the kind of voice-over used in geopolitics/future-predictions YouTube videos. Short punchy sentences. No intro pleasantries, start directly with a hook.
-
-Return ONLY valid JSON, no markdown fences, in this exact shape:
-{
-  "title": "a short punchy YouTube title, under 70 characters",
-  "segments": [
-    {
-      "text": "one narration sentence",
-      "location": "the specific country or city this sentence is about, e.g. 'Kenya' or 'Shanghai, China' — empty string \"\" if the sentence doesn't name a specific place",
-      "visualQuery": "2-5 word stock footage search phrase for this sentence, e.g. 'Shanghai skyline night' — if a place is named, the phrase MUST include that place's name",
-      "rank": "if this topic is a numbered ranking (Top 10, etc.) and this sentence is the one revealing one specific entry, the number for that entry as it's spoken in the narration (e.g. 10, 9, ... 1, or 1, 2, ... 10 — whichever direction you're counting in) — use null for every segment if this topic isn't a numbered ranking, and null for segments (like the hook or a wrap-up line) that aren't revealing a specific ranked entry",
-      "countryCode": "ISO 3166-1 alpha-2 two-letter country code in lowercase matching location, e.g. 'ke' for Kenya, 'cn' for China — empty string \"\" if location is empty"
-    }
-  ]
-}
-Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every segment about a specific country MUST name that country in both "location" and "visualQuery" — never leave the visual generic when a real place is being discussed, since the footage needs to visibly match the country being talked about.`;
-
-  const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
-  let lastErr;
-  for (const model of models) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        }
-      );
-      if (!res.ok) throw new Error(`${model} responded ${res.status}`);
-      const data = await res.json();
-      let raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-      raw = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
-      const parsed = JSON.parse(raw);
-      if (!parsed.segments?.length) throw new Error("no segments returned");
-      return parsed;
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[script] ${model} failed: ${err.message}, trying next model...`);
-    }
-  }
-  throw new Error(`all Gemini models failed: ${lastErr?.message}`);
-}
-
-// Same raw-fetch OAuth + multipart upload pattern already used in
-// scripts/generate-video.mjs (no extra "googleapis" dependency needed).
-async function getAccessToken() {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      refresh_token: process.env.YOUTUBE_REFRESH_TOKEN,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = await res.json();
-  if (!data.access_token) throw new Error("Failed to get YouTube access token: " + JSON.stringify(data));
-  return data.access_token;
-}
-
-async function uploadToYouTube(videoPath, title, description) {
-  const accessToken = await getAccessToken();
-  const videoBuffer = await fs.readFile(videoPath);
-
-  const metadata = {
-    snippet: {
-      title: title.slice(0, 100),
-      description: description.slice(0, 4900),
-      tags: ["geopolitics", "top10", "future predictions", "world power ranking"],
-      categoryId: "25", // News & Politics
-    },
-    status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
-  };
-
-  const boundary = "nextscenedocumentaryboundary";
-  const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`),
-    Buffer.from(`--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`),
-    videoBuffer,
-    Buffer.from(`\r\n--${boundary}--`),
-  ]);
-
-  const uploadRes = await fetch(
-    "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status&uploadType=multipart",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    }
-  );
-  const result = await uploadRes.json();
-  if (!uploadRes.ok) throw new Error("YouTube upload failed: " + JSON.stringify(result));
-  return result;
-}
-
 async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `run_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  const topic = pickTopic();
+  const topic = pickTopic(TOPIC_POOL);
   console.log(`[topic] ${topic}`);
 
   console.log("[script] generating with Gemini...");

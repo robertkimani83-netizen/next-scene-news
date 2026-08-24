@@ -1,23 +1,23 @@
-name: Generate NextScene TV Documentary
+name: Generate NextScene TV Short
 
 on:
   schedule:
-    # 2x/day — long-form videos (~60-90s). Times are UTC: 06:00 and 16:00
-    # (~9am and 7pm East Africa Time). Shorts run separately, 3x/day, via
-    # generate-short.yml — together that's the 5 videos/day (2 long + 3
-    # short) split Robert asked for.
-    - cron: "0 6,16 * * *"
+    # 3x/day — YouTube Shorts (~25-40s, vertical). Times are UTC: 08:00,
+    # 13:00, 18:00 (~11am, 4pm, 9pm East Africa Time), spaced apart from the
+    # 2 long-form runs (06:00/16:00 in generate-documentary.yml) so nothing
+    # posts back-to-back. 3 shorts + 2 long = 5 videos/day.
+    - cron: "0 8,13,18 * * *"
   workflow_dispatch:
     inputs:
       upload:
-        description: "Actually upload to YouTube? Leave unchecked to just generate a video and review it first."
+        description: "Actually upload to YouTube? Leave unchecked to just generate a short and review it first."
         type: boolean
         default: false
 
 jobs:
   generate-and-upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -31,15 +31,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Generate documentary (review only — manual run without "upload" checked)
+      - name: Generate short (review only — manual run without "upload" checked)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
-        run: npm run test-no-upload
+        run: npm run test-short-no-upload
 
-      - name: Generate and upload documentary (scheduled runs, or manual run with "upload" checked)
+      - name: Generate and upload short (scheduled runs, or manual run with "upload" checked)
         if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -48,12 +48,12 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: npm run generate
+        run: npm run generate-short
 
-      - name: Upload video as artifact for review (kept 7 days)
+      - name: Upload short as artifact for review (kept 7 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: documentary-output
-          path: tmp/*/final.mp4
+          name: short-output
+          path: tmp/*/final_short.mp4
           retention-days: 7
