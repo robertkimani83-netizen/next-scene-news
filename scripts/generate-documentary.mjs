@@ -49,7 +49,14 @@ const SUBSCRIBE_VISUAL_QUERY = "smartphone social media scrolling";
 
 // Intro/outro are also real spoken lines (not silent cards) — they get
 // exact TTS timing and a branded title-card visual instead of stock footage.
-const INTRO_LINE = "Welcome to NextScene TV — the future uncovered.";
+// The intro is split into TWO spoken sentences (title, then welcome) rather
+// than one line with a period in the middle — msedge-tts hands back one
+// timing entry per SENTENCE it detects (see tts.mjs), and this pipeline
+// assumes one script segment == one TTS sentence throughout; cramming two
+// sentences into a single segment would silently shift every segment after
+// it out of sync with its narration. Both segments share the same intro
+// title-card visual, so on screen it just reads as one continuous intro.
+const INTRO_WELCOME_LINE = "Welcome to NextScene TV — the future uncovered.";
 const OUTRO_LINE = "Thanks for watching. Subscribe to NextScene TV for more videos like this one.";
 const OUTRO_CARD_LINES = ["SUBSCRIBE FOR MORE", "NEXTSCENE TV — THE FUTURE UNCOVERED"];
 
@@ -191,7 +198,10 @@ async function main() {
   // The intro card shows the real episode title (thumbnail-style headline)
   // above the channel tagline; the spoken line stays a generic welcome.
   const introCardLines = [script.title.toUpperCase(), "NEXTSCENE TV — THE FUTURE UNCOVERED"];
-  script.segments.unshift({ text: INTRO_LINE, location: "", visualQuery: "", isIntro: true });
+  script.segments.unshift(
+    { text: `${script.title}.`, location: "", visualQuery: "", isIntro: true },
+    { text: INTRO_WELCOME_LINE, location: "", visualQuery: "", isIntro: true }
+  );
   script.segments.push({ text: OUTRO_LINE, location: "", visualQuery: "", isOutro: true });
 
   const fullNarration = script.segments.map((s) => s.text).join(" ");
@@ -207,6 +217,7 @@ async function main() {
 
   console.log("[visuals] fetching real clips/photos per segment...");
   const segmentsForBuild = [];
+  let introBgVisual; // fetched once, shared by both intro segments (title line + welcome line)
   for (let i = 0; i < script.segments.length; i++) {
     const timing = sentences[i] ?? {
       // fallback: split total narration duration evenly if boundaries misaligned
@@ -214,9 +225,11 @@ async function main() {
     };
     let visual;
     if (script.segments[i].isIntro) {
-      const bgVisual = await fetchVisualForSegment({ query: INTRO_BG_QUERY }, runDir, i).catch(() => null);
-      visual = { type: "title-card", lines: introCardLines, fontsize: 58, bgVisual };
-      console.log(`  segment ${i}: intro card — "${script.title}" (${timing.durationSec.toFixed(1)}s)${bgVisual ? "" : " [no bg photo found, using flat card]"}`);
+      if (introBgVisual === undefined) {
+        introBgVisual = await fetchVisualForSegment({ query: INTRO_BG_QUERY }, runDir, i).catch(() => null);
+      }
+      visual = { type: "title-card", lines: introCardLines, fontsize: 58, bgVisual: introBgVisual };
+      console.log(`  segment ${i}: intro card — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)${introBgVisual ? "" : " [no bg photo found, using flat card]"}`);
     } else if (script.segments[i].isOutro) {
       const bgVisual = await fetchVisualForSegment({ query: OUTRO_BG_QUERY }, runDir, i).catch(() => null);
       visual = { type: "title-card", lines: OUTRO_CARD_LINES, bgVisual };
