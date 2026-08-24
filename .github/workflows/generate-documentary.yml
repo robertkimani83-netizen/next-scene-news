@@ -4,7 +4,12 @@ on:
   schedule:
     # every 6 hours — adjust once you've confirmed quality/timing you like
     - cron: "0 */6 * * *"
-  workflow_dispatch: {} # lets you trigger a run manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Actually upload to YouTube? Leave unchecked to just generate a video and review it first."
+        type: boolean
+        default: false
 
 jobs:
   generate-and-upload:
@@ -23,7 +28,16 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Generate and upload documentary
+      - name: Generate documentary (review only — manual run without "upload" checked)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+        run: npm run test-no-upload
+
+      - name: Generate and upload documentary (scheduled runs, or manual run with "upload" checked)
+        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
