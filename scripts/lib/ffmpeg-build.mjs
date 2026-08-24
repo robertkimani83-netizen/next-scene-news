@@ -13,10 +13,19 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const run = promisify(execFile);
 const WIDTH = 1920;
 const HEIGHT = 1080;
+
+// Branded assets/colors for the title-card redesign (matches the channel's
+// existing thumbnail style: real background photo, logo badge top-left,
+// wordmark top-right, gold accent tagline).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGO_PATH = path.join(__dirname, "..", "..", "assets", "logo.png");
+const BRAND_RED = "0xE21C21";
+const BRAND_GOLD = "0xFFD700";
 
 async function ffmpeg(args) {
   try {
@@ -53,22 +62,58 @@ async function writeDrawtextFile(text, filePath) {
  * reminder) as a fixed-duration 1080p clip — used for the intro and outro.
  * These are voiced like any other segment (real narration plays over them),
  * so the duration passed in is the actual TTS timing for that line, not a
- * fixed guess. */
+ * fixed guess.
+ *
+ * Styled to match the channel's existing YouTube thumbnails: a real
+ * background photo (Ken Burns pan/zoom, same as any image segment) dimmed
+ * for legibility, the channel's logo badge top-left, a "NEXT SCENE TV"
+ * wordmark top-right, the big white headline centered, and the tagline/
+ * sub-line in gold underneath. `opts.bgVisual` (a {type,path} visual, e.g.
+ * from fetchVisualForSegment) supplies that background photo; when it's
+ * missing (no visual found, or none requested) this falls back to a flat
+ * `opts.bg` color card so the video never breaks for lack of a photo. */
 async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
-  const { bg = "black", fontsize = 72, subFontsize = 32 } = opts;
+  const { bg = "black", fontsize = 72, subFontsize = 32, bgVisual = null } = opts;
   const dur = Math.max(durationSec, 1).toFixed(2);
   const [main, sub] = lines;
 
+  const bgClipPath = `${outPath}.bg.mp4`;
+  if (bgVisual) {
+    await renderBaseClip(bgVisual, dur, bgClipPath);
+  } else {
+    await ffmpeg([
+      "-f", "lavfi", "-i", `color=c=${bg}:s=${WIDTH}x${HEIGHT}:d=${dur}:r=30`,
+      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+      bgClipPath,
+    ]);
+  }
+
   const mainFile = await writeDrawtextFile(main, `${outPath}.main.txt`);
-  let vf = `drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${fontsize}:x=(w-text_w)/2:y=(h-text_h)/2${sub ? "-36" : ""}`;
+  const wordmarkFile = await writeDrawtextFile("NEXT SCENE TV", `${outPath}.wordmark.txt`);
+
+  const parts = [
+    // dim the photo so white/gold text stays readable over busy backgrounds
+    `[0:v]drawbox=x=0:y=0:w=iw:h=ih:color=black@0.45:t=fill[dimmed]`,
+    `[1:v]scale=-1:130[logo]`,
+    `[dimmed][logo]overlay=x=50:y=40[b0]`,
+    `[b0]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(wordmarkFile)}:fontcolor=white:fontsize=30:box=1:boxcolor=${BRAND_RED}:boxborderw=14:x=w-text_w-50:y=55[b1]`,
+    `[b1]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${fontsize}:bordercolor=black:borderw=3:x=(w-text_w)/2:y=(h-text_h)/2${sub ? "-36" : ""}[b2]`,
+  ];
+  let last = "b2";
   if (sub) {
     const subFile = await writeDrawtextFile(sub, `${outPath}.sub.txt`);
-    vf += `,drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=white:fontsize=${subFontsize}:x=(w-text_w)/2:y=(h-text_h)/2+40`;
+    parts.push(
+      `[${last}]drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=${BRAND_GOLD}:fontsize=${subFontsize}:bordercolor=black:borderw=2:x=(w-text_w)/2:y=(h-text_h)/2+40[b3]`
+    );
+    last = "b3";
   }
 
   await ffmpeg([
-    "-f", "lavfi", "-i", `color=c=${bg}:s=${WIDTH}x${HEIGHT}:d=${dur}:r=30`,
-    "-vf", vf,
+    "-i", bgClipPath,
+    "-loop", "1", "-i", LOGO_PATH,
+    "-filter_complex", parts.join(";"),
+    "-map", `[${last}]`,
+    "-t", dur,
     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
     outPath,
   ]);
@@ -81,6 +126,7 @@ async function renderBaseClip(visual, dur, outPath) {
       bg: visual.bg ?? "black",
       fontsize: visual.fontsize,
       subFontsize: visual.subFontsize,
+      bgVisual: visual.bgVisual ?? null,
     });
     return;
   }

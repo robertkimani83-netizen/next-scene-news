@@ -53,6 +53,12 @@ const INTRO_LINE = "Welcome to NextScene TV — the future uncovered.";
 const OUTRO_LINE = "Thanks for watching. Subscribe to NextScene TV for more videos like this one.";
 const OUTRO_CARD_LINES = ["SUBSCRIBE FOR MORE", "NEXTSCENE TV — THE FUTURE UNCOVERED"];
 
+// Background photo behind the intro/outro cards (thumbnail-style — a real
+// skyline, not a flat color) — non-fatal if no clip/photo is found for
+// either query, renderTitleCard just falls back to a plain card.
+const INTRO_BG_QUERY = "futuristic city skyline night aerial";
+const OUTRO_BG_QUERY = "city skyline night lights aerial";
+
 /** Ask Gemini for a documentary script broken into narratable sentences,
  * each paired with a short visual search phrase. Falls back across a few
  * free Gemini models the same way the VOX254 pipeline does. */
@@ -208,11 +214,13 @@ async function main() {
     };
     let visual;
     if (script.segments[i].isIntro) {
-      visual = { type: "title-card", lines: introCardLines, fontsize: 58 };
-      console.log(`  segment ${i}: intro card — "${script.title}" (${timing.durationSec.toFixed(1)}s)`);
+      const bgVisual = await fetchVisualForSegment({ query: INTRO_BG_QUERY }, runDir, i).catch(() => null);
+      visual = { type: "title-card", lines: introCardLines, fontsize: 58, bgVisual };
+      console.log(`  segment ${i}: intro card — "${script.title}" (${timing.durationSec.toFixed(1)}s)${bgVisual ? "" : " [no bg photo found, using flat card]"}`);
     } else if (script.segments[i].isOutro) {
-      visual = { type: "title-card", lines: OUTRO_CARD_LINES };
-      console.log(`  segment ${i}: outro card (${timing.durationSec.toFixed(1)}s)`);
+      const bgVisual = await fetchVisualForSegment({ query: OUTRO_BG_QUERY }, runDir, i).catch(() => null);
+      visual = { type: "title-card", lines: OUTRO_CARD_LINES, bgVisual };
+      console.log(`  segment ${i}: outro card (${timing.durationSec.toFixed(1)}s)${bgVisual ? "" : " [no bg photo found, using flat card]"}`);
     } else {
       visual = await fetchVisualForSegment(
         { query: script.segments[i].visualQuery, location: script.segments[i].location },
