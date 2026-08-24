@@ -20,16 +20,23 @@ import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary, PORTRAIT_DIMS } from "./lib/ffmpeg-build.mjs";
-import { generateScript, pickTopic } from "./lib/script-gen.mjs";
+import { generateScript } from "./lib/script-gen.mjs";
+import { pickAndRecordTopic } from "./lib/topic-history.mjs";
 import { uploadToYouTube } from "./lib/youtube.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NO_UPLOAD = process.argv.includes("--no-upload");
 
+// state/topic-history-short.json is committed back to the repo after a real
+// run (see the "Save topic history" step in generate-short.yml) so the
+// least-recently-used picker (lib/topic-history.mjs) has real memory across
+// separate Actions runs.
+const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-short.json");
+
 // Punchy single-fact/single-country topics — deliberately NOT full Top-10
-// lists (those need the full ~60-90s runtime to land). pickTopic() rotates
-// through these by hour, same as the long-form pool, so runs spread through
-// the day don't repeat until the whole pool has cycled — extend freely.
+// lists (those need the full ~60-90s runtime to land). 30 topics at 3
+// Shorts/day means the pool cycles roughly every 10 days before any topic
+// repeats — extend freely, the picker adapts automatically.
 const SHORT_TOPIC_POOL = [
   "Why Monaco has no income tax and how its economy actually works",
   "The country with the highest number of billionaires per capita",
@@ -47,6 +54,20 @@ const SHORT_TOPIC_POOL = [
   "The country with the world's most powerful passport",
   "Why Estonia is called the most digital country on Earth",
   "The country building the world's tallest and most futuristic skyline",
+  "Why Luxembourg has the highest GDP per capita in the world",
+  "The country where robots outnumber factory workers",
+  "Why New Zealand keeps topping the world's safest countries list",
+  "The tiny country that controls a huge share of the world's shipping",
+  "Why Ireland became a tax haven for the world's biggest tech companies",
+  "The country with more sheep than people",
+  "Why Taiwan makes almost all the world's advanced computer chips",
+  "The country spending the most per person on renewable energy",
+  "Why Finland is ranked the happiest country on Earth",
+  "The smallest economy that punches way above its weight",
+  "Why South Korea became a global entertainment and tech powerhouse",
+  "The country with the world's largest sovereign gold reserve per capita",
+  "Why Rwanda is called Africa's cleanest and safest country",
+  "The nation betting its entire future on artificial intelligence",
 ];
 
 // Background photo behind the intro card — same idea as the long-form
@@ -58,7 +79,7 @@ async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `short_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  const topic = pickTopic(SHORT_TOPIC_POOL);
+  const topic = await pickAndRecordTopic(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH);
   console.log(`[topic] ${topic}`);
 
   console.log("[script] generating with Gemini (short form)...");

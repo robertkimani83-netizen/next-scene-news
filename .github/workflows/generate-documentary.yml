@@ -2,17 +2,23 @@ name: Generate NextScene TV Documentary
 
 on:
   schedule:
-    # 2x/day — long-form videos (~60-90s). Times are UTC: 06:00 and 16:00
-    # (~9am and 7pm East Africa Time). Shorts run separately, 3x/day, via
-    # generate-short.yml — together that's the 5 videos/day (2 long + 3
-    # short) split Robert asked for.
-    - cron: "0 6,16 * * *"
+    # 4x/week — long-form videos (~60-90s). Mon/Wed/Fri/Sun at 16:00 UTC
+    # (~7pm East Africa Time) — dialed back from 2x/day after discussing
+    # posting-frequency best practice (long-form benefits from staying less
+    # frequent than Shorts) and topic-repeat risk. With the 35-topic pool
+    # and the persistent least-recently-used picker (lib/topic-history.mjs),
+    # a topic won't repeat for roughly 8-9 weeks at this pace. Shorts stay
+    # at 3x/day via generate-short.yml, already in the recommended range.
+    - cron: "0 16 * * 1,3,5,0"
   workflow_dispatch:
     inputs:
       upload:
         description: "Actually upload to YouTube? Leave unchecked to just generate a video and review it first."
         type: boolean
         default: false
+
+permissions:
+  contents: write # needed so the "Save topic history" step below can commit/push
 
 jobs:
   generate-and-upload:
@@ -49,6 +55,25 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: npm run generate
+
+      - name: Save topic history
+        # Only for real runs (matches the upload gate above) — a review-only
+        # test run shouldn't consume a slot in the rotation. Commits
+        # state/topic-history-long.json only if it actually changed, so this
+        # step is a harmless no-op if the topic picker's output is identical
+        # (it never should be, but this keeps it safe either way).
+        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/topic-history-long.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update long-form topic history [skip ci]"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No topic history changes to commit"
+          fi
 
       - name: Upload video as artifact for review (kept 7 days)
         if: always()

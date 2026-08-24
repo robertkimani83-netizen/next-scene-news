@@ -25,16 +25,23 @@ import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary } from "./lib/ffmpeg-build.mjs";
-import { generateScript, pickTopic } from "./lib/script-gen.mjs";
+import { generateScript } from "./lib/script-gen.mjs";
+import { pickAndRecordTopic } from "./lib/topic-history.mjs";
 import { uploadToYouTube } from "./lib/youtube.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NO_UPLOAD = process.argv.includes("--no-upload");
 
+// state/topic-history-long.json is committed back to the repo after a real
+// run (see the "Save topic history" step in generate-documentary.yml) so
+// the least-recently-used picker (lib/topic-history.mjs) has real memory
+// across separate Actions runs, not just a clock-derived guess.
+const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-long.json");
+
 // NextScene TV's existing lane: Top 10 rankings, country/power comparisons,
-// "what's coming next" style predictions. pickTopic() rotates through these
-// by hour so runs a few hours apart (the normal cadence for scheduled runs)
-// don't repeat a topic until the whole pool has been used — extend freely.
+// "what's coming next" style predictions. 35 topics at 4 videos/week (the
+// current schedule) means the full pool cycles roughly every 8-9 weeks
+// before any topic repeats — extend freely, the picker adapts automatically.
 const TOPIC_POOL = [
   "Top 10 countries with the most powerful militaries in the world right now",
   "Top 10 fastest growing economies in the world and why they're rising",
@@ -54,6 +61,23 @@ const TOPIC_POOL = [
   "Top 10 countries leading the global renewable energy race",
   "The nations racing to control the world's rare earth minerals",
   "Top 10 countries with the most billionaires and why they cluster there",
+  "Top 10 countries with the most advanced healthcare systems in the world",
+  "Top 10 countries producing the most electric vehicles",
+  "Top 10 countries with the highest quality of life right now",
+  "The nations most at risk of running out of fresh water",
+  "Top 10 countries dominating global semiconductor production",
+  "Top 10 countries with the largest and most modern navies",
+  "The world's fastest-growing tech hubs outside Silicon Valley",
+  "Top 10 countries with the most nuclear power plants",
+  "Top 10 countries leading the global shift to electric transportation",
+  "The nations quietly building the world's next financial centers",
+  "Top 10 countries with the most advanced cybersecurity capabilities",
+  "Top 10 countries with the youngest and fastest-growing populations",
+  "The countries positioned to dominate the global chip war",
+  "Top 10 countries with the strongest manufacturing sectors",
+  "Top 10 countries investing the most in space exploration",
+  "The nations racing to build the first commercial fusion reactors",
+  "Top 10 countries with the most powerful economic sanctions leverage",
 ];
 
 // Spoken mid-roll reminder — inserted into the narration itself so it's
@@ -85,7 +109,7 @@ async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `run_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  const topic = pickTopic(TOPIC_POOL);
+  const topic = await pickAndRecordTopic(TOPIC_POOL, TOPIC_HISTORY_PATH);
   console.log(`[topic] ${topic}`);
 
   console.log("[script] generating with Gemini...");

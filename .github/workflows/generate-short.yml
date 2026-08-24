@@ -3,9 +3,10 @@ name: Generate NextScene TV Short
 on:
   schedule:
     # 3x/day — YouTube Shorts (~25-40s, vertical). Times are UTC: 08:00,
-    # 13:00, 18:00 (~11am, 4pm, 9pm East Africa Time), spaced apart from the
-    # 2 long-form runs (06:00/16:00 in generate-documentary.yml) so nothing
-    # posts back-to-back. 3 shorts + 2 long = 5 videos/day.
+    # 13:00, 18:00 (~11am, 4pm, 9pm East Africa Time). With the 30-topic
+    # pool and the persistent least-recently-used picker
+    # (lib/topic-history.mjs), a topic won't repeat for roughly 10 days at
+    # this pace. Long-form runs 4x/week via generate-documentary.yml.
     - cron: "0 8,13,18 * * *"
   workflow_dispatch:
     inputs:
@@ -13,6 +14,9 @@ on:
         description: "Actually upload to YouTube? Leave unchecked to just generate a short and review it first."
         type: boolean
         default: false
+
+permissions:
+  contents: write # needed so the "Save topic history" step below can commit/push
 
 jobs:
   generate-and-upload:
@@ -49,6 +53,25 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: npm run generate-short
+
+      - name: Save topic history
+        # Only for real runs (matches the upload gate above) — a review-only
+        # test run shouldn't consume a slot in the rotation. Commits
+        # state/topic-history-short.json only if it actually changed, so this
+        # step is a harmless no-op if the topic picker's output is identical
+        # (it never should be, but this keeps it safe either way).
+        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/topic-history-short.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Shorts topic history [skip ci]"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No topic history changes to commit"
+          fi
 
       - name: Upload short as artifact for review (kept 7 days)
         if: always()

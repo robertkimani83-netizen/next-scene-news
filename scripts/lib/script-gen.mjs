@@ -84,14 +84,10 @@ Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every se
   throw new Error(`all Gemini models failed: ${lastErr?.message}`);
 }
 
-/** Deterministically rotates through a topic pool over time (no persistent
- * state needed between separate GitHub Actions runs): buckets the current
- * hour and picks pool[hourBucket % pool.length]. Runs that land in
- * different hours (which every scheduled run does, since they're spaced
- * hours apart) get different topics, cycling through the whole pool before
- * repeating — much less repetitive than picking randomly, which can and
- * does pick the same topic twice in a row. */
-export function pickTopic(pool) {
-  const hourBucket = Math.floor(Date.now() / 3_600_000);
-  return pool[hourBucket % pool.length];
-}
+// Topic selection now lives in lib/topic-history.mjs (pickAndRecordTopic) —
+// a persistent least-recently-used picker that survives across separate
+// GitHub Actions runs, rather than the clock-hour rotation this file used
+// to do. The hour-based approach worked for evenly-spaced schedules but had
+// a real gap: two runs landing in the same UTC hour (e.g. a manual test run
+// alongside a scheduled one) would compute the same bucket and pick the
+// exact same topic. See topic-history.mjs for the replacement.
