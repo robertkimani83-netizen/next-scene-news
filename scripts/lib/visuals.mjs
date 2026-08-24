@@ -65,33 +65,59 @@ async function findPhoto(query) {
   return null;
 }
 
+/** Builds an ordered list of search phrases to try, most-specific first.
+ * A named country/city ("location") is tried before the generic scene
+ * description, since stock libraries reliably have skyline/aerial footage
+ * for real places but often don't have anything for an abstract phrase
+ * like "growing economy" — which is what was causing videos to show the
+ * wrong country. */
+function buildSearchTerms(query, location) {
+  const terms = [];
+  if (location) {
+    terms.push(`${location} skyline`);
+    terms.push(`${location} city aerial`);
+    terms.push(location);
+  }
+  if (query) terms.push(query);
+  return [...new Set(terms.filter(Boolean))];
+}
+
 /**
  * Gets a real visual (video clip or photo) for one narration segment and
- * saves it to disk, ready for the ffmpeg assembly step.
+ * saves it to disk, ready for the ffmpeg assembly step. Tries every search
+ * term across all real video results first (so a named place always wins
+ * over a generic clip), then falls back to photos with the same terms.
  *
- * @param {string} query - short visual search phrase, e.g. "Dubai skyline aerial"
+ * @param {{query: string, location?: string}} search - `query` is a short
+ *   visual search phrase (e.g. "container ship port"); `location` is the
+ *   specific country/city this segment is about, if any (e.g. "Nairobi, Kenya").
  * @param {string} outDir
  * @param {number} index - segment index, used for the output filename
  */
-export async function fetchVisualForSegment(query, outDir, index) {
+export async function fetchVisualForSegment({ query, location } = {}, outDir, index) {
   await fs.mkdir(outDir, { recursive: true });
+  const terms = buildSearchTerms(query, location);
 
-  const video = await findPexelsVideo(query).catch(() => null);
-  if (video) {
-    const dest = path.join(outDir, `segment_${index}_raw.mp4`);
-    await downloadTo(video.url, dest);
-    return { type: "video", path: dest };
+  for (const term of terms) {
+    const video = await findPexelsVideo(term).catch(() => null);
+    if (video) {
+      const dest = path.join(outDir, `segment_${index}_raw.mp4`);
+      await downloadTo(video.url, dest);
+      return { type: "video", path: dest, matchedTerm: term };
+    }
   }
 
-  const photo = await findPhoto(query).catch(() => null);
-  if (photo) {
-    const ext = photo.url.includes(".png") ? "png" : "jpg";
-    const dest = path.join(outDir, `segment_${index}_raw.${ext}`);
-    await downloadTo(photo.url, dest);
-    return { type: "image", path: dest };
+  for (const term of terms) {
+    const photo = await findPhoto(term).catch(() => null);
+    if (photo) {
+      const ext = photo.url.includes(".png") ? "png" : "jpg";
+      const dest = path.join(outDir, `segment_${index}_raw.${ext}`);
+      await downloadTo(photo.url, dest);
+      return { type: "image", path: dest, matchedTerm: term };
+    }
   }
 
-  // last-resort: no visual found for this query — caller should fall back
-  // to a branded placeholder/title card rather than leaving a gap.
+  // last-resort: no visual found for any search term — caller should fall
+  // back to a branded placeholder/title card rather than leaving a gap.
   return null;
 }

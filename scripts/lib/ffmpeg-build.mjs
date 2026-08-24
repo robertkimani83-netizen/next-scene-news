@@ -59,25 +59,82 @@ async function renderSegmentClip(visual, durationSec, outPath) {
   ]);
 }
 
+function srtTimestamp(sec) {
+  const ms = Math.max(0, Math.round(sec * 1000));
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const msRem = ms % 1000;
+  const pad = (n, len = 2) => String(n).padStart(len, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(msRem, 3)}`;
+}
+
+/** Writes an SRT file whose timings match the actual on-screen segment
+ * timeline built below (not the raw TTS boundaries), so captions always
+ * land exactly on the clip they belong to even if a visual was skipped. */
+async function writeSrt(capSegments, srtPath) {
+  const blocks = capSegments.map(
+    (seg, i) =>
+      `${i + 1}\n${srtTimestamp(seg.startSec)} --> ${srtTimestamp(seg.startSec + seg.durationSec)}\n${seg.text}\n`
+  );
+  await fs.writeFile(srtPath, blocks.join("\n"), "utf-8");
+}
+
+/** Escapes a filesystem path for safe use inside an ffmpeg filtergraph string. */
+function escapeFilterPath(p) {
+  return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+/** Burns captions into the video (requires ffmpeg built with libass, and a
+ * font available via fontconfig — install `fonts-dejavu-core` in CI). */
+async function burnSubtitles(inputPath, srtPath, outPath) {
+  const style =
+    "FontName=DejaVu Sans,FontSize=22,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=60";
+  await ffmpeg([
+    "-i", inputPath,
+    "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+    "-an",
+    outPath,
+  ]);
+}
+
 /**
- * @param {Array<{visual: {type:string,path:string}|null, durationSec: number}>} segments
+ * @param {Array<{visual: {type:string,path:string}|null, durationSec: number, text?: string}>} segments
  * @param {string} narrationAudioPath
  * @param {string} workDir - scratch directory for intermediate files
  * @param {string} outputPath - final MP4 path
  * @param {string|null} placeholderImage - branded fallback image path used when a segment has no visual
+ * @param {{subtitles?: boolean}} options - set subtitles:false to skip burning in captions
  */
-export async function buildDocumentary(segments, narrationAudioPath, workDir, outputPath, placeholderImage = null) {
+export async function buildDocumentary(
+  segments,
+  narrationAudioPath,
+  workDir,
+  outputPath,
+  placeholderImage = null,
+  options = {}
+) {
+  const { subtitles = true } = options;
   await fs.mkdir(workDir, { recursive: true });
 
   const clipPaths = [];
+  const capSegments = [];
+  let cumulativeSec = 0;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const visual = seg.visual ?? (placeholderImage ? { type: "image", path: placeholderImage } : null);
     if (!visual) continue; // no visual and no placeholder configured — skip rather than break the video
 
+    const dur = Math.max(seg.durationSec, 0.6); // matches the floor renderSegmentClip applies
     const clipPath = path.join(workDir, `segment_${i}.mp4`);
-    await renderSegmentClip(visual, seg.durationSec, clipPath);
+    await renderSegmentClip(visual, dur, clipPath);
     clipPaths.push(clipPath);
+
+    if (seg.text) {
+      capSegments.push({ text: seg.text, startSec: cumulativeSec, durationSec: dur });
+    }
+    cumulativeSec += dur;
   }
 
   if (clipPaths.length === 0) {
@@ -91,9 +148,18 @@ export async function buildDocumentary(segments, narrationAudioPath, workDir, ou
   const visualsOnly = path.join(workDir, "visuals_concat.mp4");
   await ffmpeg(["-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", visualsOnly]);
 
+  let videoForMux = visualsOnly;
+  if (subtitles && capSegments.length > 0) {
+    const srtPath = path.join(workDir, "captions.srt");
+    await writeSrt(capSegments, srtPath);
+    const subtitledPath = path.join(workDir, "visuals_subtitled.mp4");
+    await burnSubtitles(visualsOnly, srtPath, subtitledPath);
+    videoForMux = subtitledPath;
+  }
+
   // lay the narration track on top; -shortest guards against tiny drift
   await ffmpeg([
-    "-i", visualsOnly,
+    "-i", videoForMux,
     "-i", narrationAudioPath,
     "-c:v", "copy",
     "-c:a", "aac", "-b:a", "160k",

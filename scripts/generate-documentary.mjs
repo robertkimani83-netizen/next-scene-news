@@ -53,10 +53,10 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
 {
   "title": "a short punchy YouTube title, under 70 characters",
   "segments": [
-    { "text": "one narration sentence", "visualQuery": "2-5 word stock footage search phrase for this sentence, e.g. 'Shanghai skyline night'" }
+    { "text": "one narration sentence", "location": "the specific country or city this sentence is about, e.g. 'Kenya' or 'Shanghai, China' — empty string \"\" if the sentence doesn't name a specific place", "visualQuery": "2-5 word stock footage search phrase for this sentence, e.g. 'Shanghai skyline night' — if a place is named, the phrase MUST include that place's name" }
   ]
 }
-Each segment.text should be ONE sentence. Aim for 10-16 segments total.`;
+Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every segment about a specific country MUST name that country in both "location" and "visualQuery" — never leave the visual generic when a real place is being discussed, since the footage needs to visibly match the country being talked about.`;
 
   const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
   let lastErr;
@@ -85,26 +85,60 @@ Each segment.text should be ONE sentence. Aim for 10-16 segments total.`;
   throw new Error(`all Gemini models failed: ${lastErr?.message}`);
 }
 
-async function uploadToYouTube(videoPath, title, description) {
-  const { google } = await import("googleapis");
-  const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
-  oauth2Client.setCredentials({ refresh_token: process.env.YOUTUBE_REFRESH_TOKEN });
-  const youtube = google.youtube({ version: "v3", auth: oauth2Client });
-
-  const res = await youtube.videos.insert({
-    part: ["snippet", "status"],
-    requestBody: {
-      snippet: {
-        title,
-        description,
-        tags: ["geopolitics", "top10", "future predictions", "world power ranking"],
-        categoryId: "25", // News & Politics
-      },
-      status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
-    },
-    media: { body: (await import("node:fs")).createReadStream(videoPath) },
+// Same raw-fetch OAuth + multipart upload pattern already used in
+// scripts/generate-video.mjs (no extra "googleapis" dependency needed).
+async function getAccessToken() {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: process.env.YOUTUBE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }),
   });
-  return res.data;
+  const data = await res.json();
+  if (!data.access_token) throw new Error("Failed to get YouTube access token: " + JSON.stringify(data));
+  return data.access_token;
+}
+
+async function uploadToYouTube(videoPath, title, description) {
+  const accessToken = await getAccessToken();
+  const videoBuffer = await fs.readFile(videoPath);
+
+  const metadata = {
+    snippet: {
+      title: title.slice(0, 100),
+      description: description.slice(0, 4900),
+      tags: ["geopolitics", "top10", "future predictions", "world power ranking"],
+      categoryId: "25", // News & Politics
+    },
+    status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
+  };
+
+  const boundary = "nextscenedocumentaryboundary";
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`),
+    videoBuffer,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+
+  const uploadRes = await fetch(
+    "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status&uploadType=multipart",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    }
+  );
+  const result = await uploadRes.json();
+  if (!uploadRes.ok) throw new Error("YouTube upload failed: " + JSON.stringify(result));
+  return result;
 }
 
 async function main() {
@@ -136,12 +170,17 @@ async function main() {
       // fallback: split total narration duration evenly if boundaries misaligned
       durationSec: (sentences.at(-1)?.startSec + sentences.at(-1)?.durationSec || 60) / script.segments.length,
     };
-    const visual = await fetchVisualForSegment(script.segments[i].visualQuery, runDir, i).catch((err) => {
+    const visual = await fetchVisualForSegment(
+      { query: script.segments[i].visualQuery, location: script.segments[i].location },
+      runDir,
+      i
+    ).catch((err) => {
       console.warn(`[visuals] segment ${i} ("${script.segments[i].visualQuery}") failed: ${err.message}`);
       return null;
     });
-    console.log(`  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"} — "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`);
-    segmentsForBuild.push({ visual, durationSec: timing.durationSec });
+    const matched = visual?.matchedTerm ? ` matched "${visual.matchedTerm}"` : "";
+    console.log(`  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"}${matched} — wanted "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`);
+    segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }
 
   const outputPath = path.join(runDir, "final.mp4");
