@@ -58,7 +58,7 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
 }
 Each segment.text should be ONE sentence. Aim for 10-16 segments total.`;
 
-  const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+  const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
   let lastErr;
   for (const model of models) {
     try {
