@@ -24,10 +24,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
-import { buildDocumentary } from "./lib/ffmpeg-build.mjs";
+import { buildDocumentary, CARD_THEMES } from "./lib/ffmpeg-build.mjs";
 import { generateScript } from "./lib/script-gen.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
-import { uploadToYouTube } from "./lib/youtube.mjs";
+import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist } from "./lib/youtube.mjs";
+import { buildHashtags, buildTags } from "./lib/seo.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NO_UPLOAD = process.argv.includes("--no-upload");
@@ -105,6 +106,13 @@ const OUTRO_CARD_LINES = ["SUBSCRIBE FOR MORE", "NEXTSCENE TV — THE FUTURE UNC
 const INTRO_BG_QUERY = "futuristic city skyline night aerial";
 const OUTRO_BG_QUERY = "city skyline night lights aerial";
 
+// Every upload gets filed into this playlist (created once, reused after) —
+// grouping related videos helps session watch time, which the algorithm
+// rewards, and gives new viewers an easy "watch more of these" path.
+const PLAYLIST_TITLE = "Top 10 & Documentaries — NEXTSCENE TV";
+const PLAYLIST_DESCRIPTION =
+  "Full-length Top 10 rankings, power comparisons, and future-prediction documentaries from NEXTSCENE TV — the future uncovered.";
+
 async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `run_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
@@ -135,6 +143,26 @@ async function main() {
     { text: `${script.title}.`, location: "", visualQuery: "", isIntro: true },
     { text: INTRO_WELCOME_LINE, location: "", visualQuery: "", isIntro: true }
   );
+
+  // A one-sentence analytical/opinion line from Gemini (script.commentary) —
+  // a genuine editorial take rather than another plain fact, spliced in
+  // right before the outro. This is a real human-editorial-style beat, not
+  // just narrated facts back to back — see the note on YouTube's
+  // "inauthentic content" policy in the channel's memory/history for why
+  // that distinction matters. Falls back to skipping it gracefully if
+  // Gemini didn't return one (older responses, or an off-schema reply).
+  if (script.commentary) {
+    const commentaryQuery = script.keywords?.length
+      ? `${script.keywords[0]} global analysis`
+      : "world map global analysis data";
+    script.segments.push({
+      text: script.commentary,
+      location: "",
+      visualQuery: commentaryQuery,
+      isCommentary: true,
+    });
+  }
+
   script.segments.push({ text: OUTRO_LINE, location: "", visualQuery: "", isOutro: true });
 
   const fullNarration = script.segments.map((s) => s.text).join(" ");
@@ -199,9 +227,15 @@ async function main() {
     segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }
 
+  // Rotate the accent-color theme per video (see CARD_THEMES in
+  // ffmpeg-build.mjs) so the channel doesn't look like one identical
+  // template stamped out on every upload.
+  const theme = CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)];
+  console.log(`[theme] using "${theme.name}" card theme`);
+
   const outputPath = path.join(runDir, "final.mp4");
   console.log("[ffmpeg] assembling synced video (with voiced intro/outro)...");
-  await buildDocumentary(segmentsForBuild, audioPath, path.join(runDir, "work"), outputPath);
+  await buildDocumentary(segmentsForBuild, audioPath, path.join(runDir, "work"), outputPath, null, { theme });
   console.log(`[done] video ready: ${outputPath}`);
 
   if (NO_UPLOAD) {
@@ -210,9 +244,31 @@ async function main() {
   }
 
   console.log("[upload] pushing to NEXTSCENE TV...");
-  const description = `${script.title}\n\nAuto-narrated documentary breakdown. Subscribe for more.\n\n#geopolitics #top10 #futurepredictions`;
-  const uploaded = await uploadToYouTube(outputPath, script.title, description);
+  const coveredPlaces = [...new Set(script.segments.map((s) => s.location).filter(Boolean))];
+  const hashtags = buildHashtags(script.keywords, ["#geopolitics", "#top10", "#futurepredictions"]);
+  const tags = buildTags(script.keywords, coveredPlaces, ["top10", "geopolitics", "future predictions", "documentary"]);
+  const description = [
+    script.title,
+    "",
+    script.commentary || "Auto-narrated documentary breakdown for NEXTSCENE TV — the future uncovered.",
+    coveredPlaces.length ? `Covering: ${coveredPlaces.join(", ")}.` : "",
+    "",
+    "Subscribe for more Top 10 rankings, power comparisons, and future predictions.",
+    "",
+    hashtags.join(" "),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const uploaded = await uploadToYouTube(outputPath, script.title, description, { tags });
   console.log(`[upload] done: https://youtube.com/watch?v=${uploaded.id}`);
+
+  try {
+    const playlistId = await getOrCreatePlaylist(PLAYLIST_TITLE, PLAYLIST_DESCRIPTION);
+    await addVideoToPlaylist(playlistId, uploaded.id);
+    console.log(`[playlist] added to "${PLAYLIST_TITLE}"`);
+  } catch (err) {
+    console.warn(`[playlist] failed (video still uploaded fine): ${err.message}`);
+  }
 }
 
 main().catch((err) => {

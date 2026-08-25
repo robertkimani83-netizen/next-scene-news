@@ -47,8 +47,22 @@ function scaleY(px, dims) {
 // wordmark top-right, gold accent tagline).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, "..", "..", "assets", "logo.png");
-const BRAND_RED = "0xE21C21";
-const BRAND_GOLD = "0xFFD700";
+
+// A small rotation of accent-color themes for the title cards and badges.
+// Picking a different one per video (see generate-documentary.mjs/
+// generate-short.mjs) keeps the channel from looking like one identical
+// template stamped out every time — both a small algorithm/visibility win
+// (more visually distinct thumbnails/cards) and a hedge against YouTube's
+// "inauthentic content" policy, which specifically flags videos that are
+// "made with a template with little to no variation". The layout/structure
+// stays identical (still on-brand, still recognizable as NEXTSCENE TV) —
+// only the accent colors shift. `signature` matches the original fixed
+// red/gold look exactly, so index 0 is a no-op if a caller doesn't rotate.
+export const CARD_THEMES = [
+  { name: "signature", wordmarkBg: "0xE21C21", accent: "0xFFD700" },
+  { name: "electric-blue", wordmarkBg: "0x1C3FE2", accent: "0x4FD8FF" },
+  { name: "emerald", wordmarkBg: "0x0E7A4B", accent: "0x7CFFB2" },
+];
 
 async function ffmpeg(args) {
   try {
@@ -102,6 +116,7 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
     subFontsize = 32,
     bgVisual = null,
     dims = LANDSCAPE_DIMS,
+    theme = CARD_THEMES[0],
   } = opts;
   const dur = Math.max(durationSec, 1).toFixed(2);
   const [main, sub] = lines;
@@ -135,14 +150,14 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
     `[0:v]drawbox=x=0:y=0:w=iw:h=ih:color=black@0.45:t=fill[dimmed]`,
     `[1:v]scale=-1:${logoH}[logo]`,
     `[dimmed][logo]overlay=x=${margin}:y=${marginTop}[b0]`,
-    `[b0]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(wordmarkFile)}:fontcolor=white:fontsize=${wordmarkFontsize}:box=1:boxcolor=${BRAND_RED}:boxborderw=${wordmarkBoxBorder}:x=w-text_w-${margin}:y=${wordmarkY}[b1]`,
+    `[b0]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(wordmarkFile)}:fontcolor=white:fontsize=${wordmarkFontsize}:box=1:boxcolor=${theme.wordmarkBg}:boxborderw=${wordmarkBoxBorder}:x=w-text_w-${margin}:y=${wordmarkY}[b1]`,
     `[b1]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${titleFontsize}:bordercolor=black:borderw=3:x=(w-text_w)/2:y=(h-text_h)/2${sub ? `-${scaleY(36, dims)}` : ""}[b2]`,
   ];
   let last = "b2";
   if (sub) {
     const subFile = await writeDrawtextFile(sub, `${outPath}.sub.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=${BRAND_GOLD}:fontsize=${subFs}:bordercolor=black:borderw=2:x=(w-text_w)/2:y=(h-text_h)/2+${subGap}[b3]`
+      `[${last}]drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(subFile)}:fontcolor=${theme.accent}:fontsize=${subFs}:bordercolor=black:borderw=2:x=(w-text_w)/2:y=(h-text_h)/2+${subGap}[b3]`
     );
     last = "b3";
   }
@@ -159,7 +174,7 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
 }
 
 /** Renders the base clip for one segment's visual (no badge). */
-async function renderBaseClip(visual, dur, outPath, dims = LANDSCAPE_DIMS) {
+async function renderBaseClip(visual, dur, outPath, dims = LANDSCAPE_DIMS, theme = CARD_THEMES[0]) {
   if (visual.type === "title-card") {
     await renderTitleCard(visual.lines, parseFloat(dur), outPath, {
       bg: visual.bg ?? "black",
@@ -167,6 +182,7 @@ async function renderBaseClip(visual, dur, outPath, dims = LANDSCAPE_DIMS) {
       subFontsize: visual.subFontsize,
       bgVisual: visual.bgVisual ?? null,
       dims,
+      theme,
     });
     return;
   }
@@ -204,7 +220,7 @@ async function renderBaseClip(visual, dur, outPath, dims = LANDSCAPE_DIMS) {
  * lower portion of the frame, stacked above the caption area — matching the
  * channel's thumbnail style (numbered flag cards). Only called when a real
  * flag image was successfully fetched; skipped entirely otherwise. */
-async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSCAPE_DIMS) {
+async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSCAPE_DIMS, theme = CARD_THEMES[0]) {
   const rankText = badge.rank != null ? String(badge.rank) : "";
   const nameText = badge.countryName || "";
 
@@ -232,7 +248,7 @@ async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSC
   if (rankText) {
     const rankFile = await writeDrawtextFile(rankText, `${outPath}.rank.txt`);
     parts.push(
-      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(rankFile)}:fontcolor=black:fontsize=${rankFontsize}:box=1:boxcolor=0xFFD700:boxborderw=${rankBoxBorder}:x=${margin}:y=${rankY}[b1]`
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(rankFile)}:fontcolor=black:fontsize=${rankFontsize}:box=1:boxcolor=${theme.accent}:boxborderw=${rankBoxBorder}:x=${margin}:y=${rankY}[b1]`
     );
     last = "b1";
   }
@@ -257,17 +273,17 @@ async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSC
 
 /** Turns one segment's visual into a silent, fixed-duration clip, with an
  * optional Top-10 rank/flag/country-name badge (visual.badge). */
-async function renderSegmentClip(visual, durationSec, outPath, dims = LANDSCAPE_DIMS) {
+async function renderSegmentClip(visual, durationSec, outPath, dims = LANDSCAPE_DIMS, theme = CARD_THEMES[0]) {
   const dur = Math.max(durationSec, 0.6).toFixed(2); // floor so ultra-short sentences still show something
 
   if (!visual.badge) {
-    await renderBaseClip(visual, dur, outPath, dims);
+    await renderBaseClip(visual, dur, outPath, dims, theme);
     return;
   }
 
   const basePath = outPath.replace(/\.mp4$/, "_base.mp4");
-  await renderBaseClip(visual, dur, basePath, dims);
-  await overlayCountryBadge(basePath, visual.badge, dur, outPath, dims);
+  await renderBaseClip(visual, dur, basePath, dims, theme);
+  await overlayCountryBadge(basePath, visual.badge, dur, outPath, dims, theme);
 }
 
 function srtTimestamp(sec) {
@@ -333,10 +349,11 @@ async function burnSubtitles(inputPath, srtPath, outPath, dims = LANDSCAPE_DIMS,
  * @param {string} workDir - scratch directory for intermediate files
  * @param {string} outputPath - final MP4 path
  * @param {string|null} placeholderImage - branded fallback image path used when a segment has no visual
- * @param {{subtitles?: boolean, dims?: {width:number,height:number}, captionFontSize?: number, captionMarginV?: number}} options -
+ * @param {{subtitles?: boolean, dims?: {width:number,height:number}, captionFontSize?: number, captionMarginV?: number, theme?: object}} options -
  *   `dims` picks the output canvas — LANDSCAPE_DIMS (1920x1080, default, long-form) or PORTRAIT_DIMS
  *   (1080x1920, Shorts); every overlay position scales automatically to match. Set subtitles:false to
- *   skip burning in captions.
+ *   skip burning in captions. `theme` (one of CARD_THEMES, default CARD_THEMES[0]) picks the accent-color
+ *   variant for title cards/badges — pass a different one per video to avoid an identical look every time.
  */
 export async function buildDocumentary(
   segments,
@@ -346,7 +363,7 @@ export async function buildDocumentary(
   placeholderImage = null,
   options = {}
 ) {
-  const { subtitles = true, dims = LANDSCAPE_DIMS, captionFontSize, captionMarginV } = options;
+  const { subtitles = true, dims = LANDSCAPE_DIMS, captionFontSize, captionMarginV, theme = CARD_THEMES[0] } = options;
   await fs.mkdir(workDir, { recursive: true });
 
   const clipPaths = [];
@@ -359,7 +376,7 @@ export async function buildDocumentary(
 
     const dur = Math.max(seg.durationSec, 0.6); // matches the floor renderSegmentClip applies
     const clipPath = path.join(workDir, `segment_${i}.mp4`);
-    await renderSegmentClip(visual, dur, clipPath, dims);
+    await renderSegmentClip(visual, dur, clipPath, dims, theme);
     clipPaths.push(clipPath);
 
     if (seg.text) {

@@ -35,7 +35,9 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
       "rank": "usually null for a single-topic Short unless the topic is itself a short countdown (e.g. top 3) and this sentence reveals one entry — null otherwise",
       "countryCode": "ISO 3166-1 alpha-2 two-letter country code in lowercase matching location, e.g. 'mc' for Monaco — empty string \\"\\" if location is empty"
     }
-  ]
+  ],
+  "commentary": "ONE extra sentence giving a genuine analytical take or 'here's why this matters' perspective on the topic — not just another fact, an actual point of view. Vary how you open this from video to video (don't default to the same phrase like 'What this shows is' every time) so the channel doesn't read as templated. Must be exactly one sentence — no semicolons or periods splitting it into two.",
+  "keywords": ["6-10 short SEO keywords/phrases specific to what THIS video actually covers — real country names, technologies, or themes mentioned, not generic filler"]
 }
 Each segment.text should be ONE short sentence. Aim for 6-9 segments total (do not include a separate welcome/intro sentence — the first segment IS the hook). Every segment about a specific country MUST name that country in both "location" and "visualQuery".`
     : `Write a short documentary-style narration script (about 60-90 seconds spoken, roughly 150-220 words) on this topic: "${topic}".
@@ -53,7 +55,9 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
       "rank": "if this topic is a numbered ranking (Top 10, etc.) and this sentence is the one revealing one specific entry, the number for that entry as it's spoken in the narration (e.g. 10, 9, ... 1, or 1, 2, ... 10 — whichever direction you're counting in) — use null for every segment if this topic isn't a numbered ranking, and null for segments (like the hook or a wrap-up line) that aren't revealing a specific ranked entry",
       "countryCode": "ISO 3166-1 alpha-2 two-letter country code in lowercase matching location, e.g. 'ke' for Kenya, 'cn' for China — empty string \\"\\" if location is empty"
     }
-  ]
+  ],
+  "commentary": "ONE extra sentence giving a genuine analytical take or 'here's why this matters' perspective tying the ranking together — not just another fact, an actual point of view a human analyst would add. Vary how you open this from video to video (don't default to the same phrase like 'What this reveals is' every time) so the channel doesn't read as templated. Must be exactly one sentence — no semicolons or periods splitting it into two.",
+  "keywords": ["6-10 short SEO keywords/phrases specific to what THIS video actually covers — real country names, technologies, or themes mentioned, not generic filler"]
 }
 Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every segment about a specific country MUST name that country in both "location" and "visualQuery" — never leave the visual generic when a real place is being discussed, since the footage needs to visibly match the country being talked about.`;
 

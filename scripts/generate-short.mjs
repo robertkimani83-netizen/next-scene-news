@@ -19,10 +19,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
-import { buildDocumentary, PORTRAIT_DIMS } from "./lib/ffmpeg-build.mjs";
+import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES } from "./lib/ffmpeg-build.mjs";
 import { generateScript } from "./lib/script-gen.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
-import { uploadToYouTube } from "./lib/youtube.mjs";
+import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist } from "./lib/youtube.mjs";
+import { buildHashtags, buildTags } from "./lib/seo.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NO_UPLOAD = process.argv.includes("--no-upload");
@@ -75,6 +76,11 @@ const SHORT_TOPIC_POOL = [
 // falls back to a flat card automatically.
 const INTRO_BG_QUERY = "futuristic city skyline night aerial";
 
+// Every Short gets filed into this playlist (created once, reused after) —
+// same reasoning as the long-form pipeline's PLAYLIST_TITLE.
+const PLAYLIST_TITLE = "NEXTSCENE Shorts";
+const PLAYLIST_DESCRIPTION = "Quick country/economy facts and future predictions from NEXTSCENE TV — the future uncovered.";
+
 async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `short_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
@@ -91,6 +97,22 @@ async function main() {
   // risk of desyncing msedge-tts's one-timing-per-sentence output.
   const introCardLines = [script.title.toUpperCase(), "NEXTSCENE TV — THE FUTURE UNCOVERED"];
   script.segments.unshift({ text: `${script.title}.`, location: "", visualQuery: "", isIntro: true });
+
+  // Splice a one-sentence analytical/opinion beat (script.commentary) in
+  // right before the closing line, same idea as the long-form pipeline —
+  // a genuine editorial take instead of just another fact, and it also
+  // varies in phrasing video to video (see the prompt in script-gen.mjs).
+  if (script.commentary && script.segments.length > 1) {
+    const commentaryQuery = script.keywords?.length
+      ? `${script.keywords[0]} global analysis`
+      : "world map global analysis data";
+    script.segments.splice(script.segments.length - 1, 0, {
+      text: script.commentary,
+      location: "",
+      visualQuery: commentaryQuery,
+      isCommentary: true,
+    });
+  }
 
   const fullNarration = script.segments.map((s) => s.text).join(" ");
   console.log("[tts] synthesizing narration (en-US-ChristopherNeural)...");
@@ -143,10 +165,17 @@ async function main() {
     segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }
 
+  // Rotate the accent-color theme per video (see CARD_THEMES in
+  // ffmpeg-build.mjs) so the channel doesn't look like one identical
+  // template stamped out on every upload.
+  const theme = CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)];
+  console.log(`[theme] using "${theme.name}" card theme`);
+
   const outputPath = path.join(runDir, "final_short.mp4");
   console.log("[ffmpeg] assembling synced portrait video...");
   await buildDocumentary(segmentsForBuild, audioPath, path.join(runDir, "work"), outputPath, null, {
     dims: PORTRAIT_DIMS,
+    theme,
   });
 
   const totalSec = segmentsForBuild.reduce((sum, s) => sum + Math.max(s.durationSec, 0.6), 0);
@@ -166,11 +195,27 @@ async function main() {
   // already detects automatically) that reliably routes a video into the
   // Shorts shelf instead of regular uploads.
   const title = `${script.title} #Shorts`;
-  const description = `${script.title}\n\n#Shorts #geopolitics #futurepredictions`;
-  const uploaded = await uploadToYouTube(outputPath, title, description, {
-    tags: ["shorts", "geopolitics", "top10", "future predictions"],
-  });
+  const coveredPlaces = [...new Set(script.segments.map((s) => s.location).filter(Boolean))];
+  const hashtags = buildHashtags(script.keywords, ["#Shorts", "#geopolitics", "#futurepredictions"]);
+  const tags = buildTags(script.keywords, coveredPlaces, ["shorts", "geopolitics", "top10", "future predictions"]);
+  const description = [
+    script.title,
+    "",
+    coveredPlaces.length ? `About: ${coveredPlaces.join(", ")}.` : "",
+    hashtags.join(" "),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const uploaded = await uploadToYouTube(outputPath, title, description, { tags });
   console.log(`[upload] done: https://youtube.com/watch?v=${uploaded.id}`);
+
+  try {
+    const playlistId = await getOrCreatePlaylist(PLAYLIST_TITLE, PLAYLIST_DESCRIPTION);
+    await addVideoToPlaylist(playlistId, uploaded.id);
+    console.log(`[playlist] added to "${PLAYLIST_TITLE}"`);
+  } catch (err) {
+    console.warn(`[playlist] failed (video still uploaded fine): ${err.message}`);
+  }
 }
 
 main().catch((err) => {
