@@ -40,8 +40,8 @@ const NO_UPLOAD = process.argv.includes("--no-upload");
 const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-long.json");
 
 // NextScene TV's existing lane: Top 10 rankings, country/power comparisons,
-// "what's coming next" style predictions. 35 topics at 4 videos/week (the
-// current schedule) means the full pool cycles roughly every 8-9 weeks
+// "what's coming next" style predictions. 35 topics at 3 videos/week (the
+// current schedule) means the full pool cycles roughly every 11-12 weeks
 // before any topic repeats — extend freely, the picker adapts automatically.
 const TOPIC_POOL = [
   "Top 10 countries with the most powerful militaries in the world right now",
