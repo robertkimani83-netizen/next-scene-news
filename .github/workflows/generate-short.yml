@@ -2,12 +2,17 @@ name: Generate NextScene TV Short
 
 on:
   schedule:
-    # 3x/day — YouTube Shorts (~25-40s, vertical). Times are UTC: 08:00,
-    # 13:00, 18:00 (~11am, 4pm, 9pm East Africa Time). With the 30-topic
-    # pool and the persistent least-recently-used picker
-    # (lib/topic-history.mjs), a topic won't repeat for roughly 10 days at
-    # this pace. Long-form runs 4x/week via generate-documentary.yml.
-    - cron: "0 8,13,18 * * *"
+    # 3x/day — YouTube Shorts (~25-40s, vertical). Times are UTC: 08:05,
+    # 13:05, 18:05 (~11:05am, 4:05pm, 9:05pm East Africa Time) — offset 5
+    # minutes past the hour on purpose: GitHub's own docs warn that
+    # schedule events are more likely to be delayed right on the hour
+    # (the busiest minute across all of GitHub Actions), and a run that was
+    # never seen firing at :00 for its very first scheduled slot is exactly
+    # that failure mode. With the 30-topic pool and the persistent
+    # least-recently-used picker (lib/topic-history.mjs), a topic won't
+    # repeat for roughly 10 days at this pace. Long-form runs via
+    # generate-documentary.yml.
+    - cron: "5 8,13,18 * * *"
   workflow_dispatch:
     inputs:
       upload:

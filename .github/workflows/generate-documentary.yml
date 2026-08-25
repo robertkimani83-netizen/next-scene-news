@@ -2,16 +2,18 @@ name: Generate NextScene TV Documentary
 
 on:
   schedule:
-    # 3x/week — long-form videos (~60-90s). Mon/Wed/Fri at 16:00 UTC (~7pm
-    # East Africa Time) — dialed back from 4x/week to trade some volume for
-    # more variation per video (each upload draws from a bigger effective
-    # slice of the topic pool, and the fix12 template/theme/commentary
-    # variation matters more per-video the less often a near-identical
-    # pipeline run happens). With the 35-topic pool and the persistent
-    # least-recently-used picker (lib/topic-history.mjs), a topic won't
-    # repeat for roughly 11-12 weeks at this pace. Shorts stay at 3x/day via
-    # generate-short.yml, already in the recommended range.
-    - cron: "0 16 * * 1,3,5"
+    # 3x/week — long-form videos (~60-90s). Mon/Wed/Fri at 16:05 UTC (~7:05pm
+    # East Africa Time) — offset 5 minutes past the hour on purpose, since
+    # GitHub's own docs warn that schedule events are more likely to be
+    # delayed exactly on the hour. Dialed back from 4x/week to trade some
+    # volume for more variation per video (each upload draws from a bigger
+    # effective slice of the topic pool, and the fix12 template/theme/
+    # commentary variation matters more per-video the less often a
+    # near-identical pipeline run happens). With the 35-topic pool and the
+    # persistent least-recently-used picker (lib/topic-history.mjs), a topic
+    # won't repeat for roughly 11-12 weeks at this pace. Shorts stay at
+    # 3x/day via generate-short.yml, already in the recommended range.
+    - cron: "5 16 * * 1,3,5"
   workflow_dispatch:
     inputs:
       upload:
