@@ -2,16 +2,6 @@ name: Generate NextScene TV Short
 
 on:
   schedule:
-    # 3x/day — YouTube Shorts (~25-40s, vertical). Times are UTC: 08:05,
-    # 13:05, 18:05 (~11:05am, 4:05pm, 9:05pm East Africa Time) — offset 5
-    # minutes past the hour on purpose: GitHub's own docs warn that
-    # schedule events are more likely to be delayed right on the hour
-    # (the busiest minute across all of GitHub Actions), and a run that was
-    # never seen firing at :00 for its very first scheduled slot is exactly
-    # that failure mode. With the 30-topic pool and the persistent
-    # least-recently-used picker (lib/topic-history.mjs), a topic won't
-    # repeat for roughly 10 days at this pace. Long-form runs via
-    # generate-documentary.yml.
     - cron: "5 8,13,18 * * *"
   workflow_dispatch:
     inputs:
@@ -21,7 +11,7 @@ on:
         default: false
 
 permissions:
-  contents: write # needed so the "Save topic history" step below can commit/push
+  contents: write
 
 jobs:
   generate-and-upload:
@@ -40,13 +30,27 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Generate short (review only — manual run without "upload" checked)
+      - name: Generate short (review only - manual run without "upload" checked)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
         run: npm run test-short-no-upload
+
+      - name: Debug - check OAuth secret lengths
+        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          echo "GOOGLE_CLIENT_ID length: ${#GOOGLE_CLIENT_ID} (expected 72)"
+          echo "GOOGLE_CLIENT_SECRET length: ${#GOOGLE_CLIENT_SECRET} (expected 35)"
+          echo "YOUTUBE_REFRESH_TOKEN length: ${#YOUTUBE_REFRESH_TOKEN} (expected 101)"
+          echo "GOOGLE_CLIENT_ID starts with: ${GOOGLE_CLIENT_ID:0:5}"
+          echo "GOOGLE_CLIENT_SECRET starts with: ${GOOGLE_CLIENT_SECRET:0:6}"
+          echo "YOUTUBE_REFRESH_TOKEN starts with: ${YOUTUBE_REFRESH_TOKEN:0:4}"
 
       - name: Generate and upload short (scheduled runs, or manual run with "upload" checked)
         if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
@@ -60,11 +64,6 @@ jobs:
         run: npm run generate-short
 
       - name: Save topic history
-        # Only for real runs (matches the upload gate above) — a review-only
-        # test run shouldn't consume a slot in the rotation. Commits
-        # state/topic-history-short.json only if it actually changed, so this
-        # step is a harmless no-op if the topic picker's output is identical
-        # (it never should be, but this keeps it safe either way).
         if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
         run: |
           git config user.name "github-actions[bot]"
