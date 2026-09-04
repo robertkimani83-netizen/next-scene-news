@@ -11,7 +11,7 @@
 // (VOX254 logo + real article photo + headline) instead of touching that
 // shared, differently-branded code.
 //
-// The visual is the article's OWN real, vision-verified news photo (from
+// The visual is the article's OWN real, vision-verified news photo  (from
 // app/api/social/next-reel-article) — not stock b-roll — so every Reel is
 // an actual current Kenya/world story with an eye-catching real photo, not
 // a generic template.
