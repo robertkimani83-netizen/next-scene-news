@@ -129,3 +129,27 @@ export async function getDailyBreakingCount(): Promise<number> {
 export async function incrementDailyBreakingCount(): Promise<void> {
   await redisIncr(`next-scene-news:breaking-count:${nairobiDateKey()}`);
 }
+
+// Maximum number of non-breaking (paced) articles posted per day. Shared by
+// every route that publishes paced posts (the RSS/rewrite cron pipeline and
+// the Facebook-webhook pipeline alike) so they draw from one combined daily
+// budget rather than each having their own separate cap.
+export const DAILY_PACED_LIMIT = 15;
+
+// How many paced slots should have been used by this point in the Kenyan
+// day, so paced posts trickle out over the whole day instead of firing in
+// one burst as soon as the daily counter resets.
+export function expectedPacedSlotsByNow(): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const minutesSinceMidnight = hour * 60 + minute;
+
+  return Math.ceil((minutesSinceMidnight / 1440) * DAILY_PACED_LIMIT);
+}
