@@ -69,7 +69,10 @@ export async function GET() {
         id: article.id,
         title: article.headline,
         teaser: article.teaser,
-        imageUrl: article.photo?.url || null,
+        // Branded card (headline text + VOX254 logo burned in via
+        // app/api/og/[id]/route.tsx) rather than the raw stock photo -
+        // matches what the article page's og:image now points at too.
+        imageUrl: `${SITE_URL}/api/og/${article.id}`,
         articleUrl: `${SITE_URL}/article/${article.id}`,
       });
     }
