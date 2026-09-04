@@ -8,6 +8,25 @@ async function getArticle() {
   return res.json();
 }
 
+// Facebook's crawler fetches the article PAGE itself (not just the image)
+// to read the og:image tag, the moment Make.com creates the post. If that
+// page hasn't been hit yet, Vercel's serverless function for it is "cold"
+// and can be slow enough that Facebook's scraper gives up - Facebook's own
+// Sharing Debugger showed this happening as "Response Code 418 / Could Not
+// Connect To Server" for an article whose live Facebook post had no photo,
+// even though the og:image tag and the image itself were both fine once
+// the page was warm. Hitting the article URL ourselves first warms up the
+// function so Facebook's fetch, moments later, succeeds and gets the real
+// og:image instead of leaving the post with a blank placeholder.
+async function warmArticlePage(url) {
+  try {
+    const res = await fetch(url, { method: 'GET' });
+    console.log(`Warmed article page (${res.status}): ${url}`);
+  } catch (err) {
+    console.log(`Warm-up request failed, continuing anyway: ${err.message}`);
+  }
+}
+
 async function postToFacebook(article) {
   // Posts through the Make.com scenario (Webhooks -> Facebook Pages: Create a Post)
   // instead of calling the Facebook Graph API directly.
@@ -47,6 +66,7 @@ async function main() {
     }
 
     console.log('Posting:', article.title);
+    await warmArticlePage(article.articleUrl);
     try {
       await postToFacebook(article);
       console.log('Sent to Make webhook successfully.');
