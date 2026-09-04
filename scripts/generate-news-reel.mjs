@@ -11,7 +11,7 @@
 // (VOX254 logo + real article photo + headline) instead of touching that
 // shared, differently-branded code.
 //
-// The visual is the article's OWN real, vision-verified news photo  (from
+// The visual is the article's OWN real, vision-verified news photo (from
 // app/api/social/next-reel-article) — not stock b-roll — so every Reel is
 // an actual current Kenya/world story with an eye-catching real photo, not
 // a generic template.
@@ -173,10 +173,10 @@ async function main() {
     return;
   }
 
-  console.log("[upload] publishing to VOX254 Facebook Page as a Reel...");
+  console.log("[upload] sending to Make for publishing as a VOX254 Facebook Reel...");
   const caption = [article.title, "", "#Kenya #KenyaNews #VOX254"].join("\n");
-  const reel = await postFacebookReel(outputPath, caption, article.articleUrl);
-  console.log(`[upload] Facebook Reel published: id ${reel.reelId}`);
+  await postFacebookReel(outputPath, article.title, caption, article.articleUrl);
+  console.log("[upload] handed off to the Make webhook successfully.");
 }
 
 main().catch((err) => {
