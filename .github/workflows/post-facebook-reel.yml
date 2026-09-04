@@ -1,0 +1,52 @@
+name: Post VOX254 News Reel to Facebook
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Actually publish to Facebook? Leave unchecked to just build the reel and review it first."
+        type: boolean
+        default: false
+  schedule:
+    # 4x/day, offset from the :20-minute link-posting cron so the two
+    # pipelines never race for the same "next unposted" article at once.
+    - cron: "10 6,10,14,18 * * *"
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate reel (review only - manual run without "upload" checked)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+        run: npm run test-news-reel-no-upload
+
+      - name: Generate and publish reel (scheduled runs, or manual run with "upload" checked)
+        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+        run: npm run generate-news-reel
+
+      - name: Upload reel as artifact for review (kept 7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-reel-output
+          path: tmp/*/final_reel.mp4
+          retention-days: 7
