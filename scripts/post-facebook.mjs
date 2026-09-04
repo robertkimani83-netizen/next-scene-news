@@ -1,6 +1,5 @@
 const SITE_URL = process.env.SITE_URL;
-const PAGE_ID = process.env.FACEBOOK_PAGE_ID;
-const PAGE_ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL;
 const POSTS_PER_RUN = 3;
 
 async function getArticle() {
@@ -10,42 +9,34 @@ async function getArticle() {
 }
 
 async function postToFacebook(article) {
-  const caption = `${article.title}\n\n${article.teaser}`;
+  // Posts through the Make.com scenario (Webhooks -> Facebook Pages: Create a Post)
+  // instead of calling the Facebook Graph API directly.
+  const body = {
+    title: article.title,
+    teaser: article.teaser,
+    image: article.imageUrl,
+    link: article.articleUrl,
+  };
 
-  const params = new URLSearchParams({
-    url: article.imageUrl,
-    caption,
-    access_token: PAGE_ACCESS_TOKEN,
-  });
-
-  const res = await fetch(`https://graph.facebook.com/v26.0/${PAGE_ID}/photos`, {
+  const res = await fetch(MAKE_WEBHOOK_URL, {
     method: 'POST',
-    body: params,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 
-  const data = await res.json();
-  if (!res.ok) throw new Error('Facebook post failed: ' + JSON.stringify(data));
+  const text = await res.text();
+  if (!res.ok) throw new Error('Make webhook post failed: ' + res.status + ' ' + text);
 
-  console.log('Photo post response:', JSON.stringify(data));
-
-  if (data.post_id) {
-    const commentRes = await fetch(`https://graph.facebook.com/v26.0/${data.post_id}/comments`, {
-      method: 'POST',
-      body: new URLSearchParams({
-        message: `Read the full story here: ${article.articleUrl}`,
-        access_token: PAGE_ACCESS_TOKEN,
-      }),
-    });
-    const commentData = await commentRes.json();
-    console.log('Comment response:', JSON.stringify(commentData));
-  } else {
-    console.log('No post_id in response — skipping comment.');
-  }
-
-  return data;
+  console.log('Make webhook response:', text);
+  return text;
 }
 
 async function main() {
+  if (!MAKE_WEBHOOK_URL) {
+    console.log('MAKE_WEBHOOK_URL is not set. Aborting.');
+    process.exit(1);
+  }
+
   for (let i = 0; i < POSTS_PER_RUN; i++) {
     console.log(`\n--- Post ${i + 1} of ${POSTS_PER_RUN} ---`);
     const article = await getArticle();
@@ -57,8 +48,8 @@ async function main() {
 
     console.log('Posting:', article.title);
     try {
-      const result = await postToFacebook(article);
-      console.log('Posted! Post ID:', result.id);
+      await postToFacebook(article);
+      console.log('Sent to Make webhook successfully.');
     } catch (err) {
       console.log('FAILED:', err.message);
     }
