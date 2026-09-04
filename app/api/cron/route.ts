@@ -13,6 +13,8 @@ import {
   incrementDailyPacedCount,
   getDailyBreakingCount,
   incrementDailyBreakingCount,
+  DAILY_PACED_LIMIT,
+  expectedPacedSlotsByNow,
   type StoredArticle,
 } from "@/lib/store";
 import { postToFacebook } from "@/lib/social/facebook";
@@ -28,36 +30,13 @@ import { postToX } from "@/lib/social/x";
 
 const MAX_POSTS_PER_RUN = 3;
 
-// Maximum number of non-breaking articles posted per day.
-const DAILY_PACED_LIMIT = 15;
+// DAILY_PACED_LIMIT and expectedPacedSlotsByNow() now live in lib/store.ts
+// so they're shared with the Facebook-webhook pipeline (app/api/social/
+// next-article/route.ts), which draws from the same daily paced budget.
 
 // Vision-verifying candidate photos takes time because each candidate may
 // require an image download + Gemini verification call.
 export const maxDuration = 60;
-
-// How many paced slots should have been used by this point in the Kenyan day.
-function expectedPacedSlotsByNow(): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Africa/Nairobi",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-
-  const hour = Number(
-    parts.find((p) => p.type === "hour")?.value ?? "0"
-  );
-
-  const minute = Number(
-    parts.find((p) => p.type === "minute")?.value ?? "0"
-  );
-
-  const minutesSinceMidnight = hour * 60 + minute;
-
-  return Math.ceil(
-    (minutesSinceMidnight / 1440) * DAILY_PACED_LIMIT
-  );
-}
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
