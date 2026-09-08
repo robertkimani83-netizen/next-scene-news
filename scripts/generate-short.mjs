@@ -115,8 +115,8 @@ async function main() {
   }
 
   const fullNarration = script.segments.map((s) => s.text).join(" ");
-  console.log("[tts] synthesizing narration (en-KE-ChilembaNeural, Kenyan English)...");
-  const { audioPath, sentences } = await synthesizeNarration(fullNarration, runDir, "en-KE-ChilembaNeural");
+  console.log("[tts] synthesizing narration (en-KE-AsiliaNeural, Kenyan English, female)...");
+  const { audioPath, sentences } = await synthesizeNarration(fullNarration, runDir, "en-KE-AsiliaNeural");
 
   if (sentences.length !== script.segments.length) {
     console.warn(
