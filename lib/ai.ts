@@ -86,6 +86,18 @@ For photoSearchQueries:
 
 photoCaptionHint should describe what the desired photograph should visibly show.
 
+FACEBOOK CAPTION STYLE:
+
+The facebookCaption is what people see in the Facebook feed BEFORE they open the article - it has to earn the click and the like on its own. It is posted with NO link and NO article text attached (the link is added separately as the first comment), so it must work as a standalone hook.
+
+Write it in this exact structure:
+1. One relevant emoji, then a short punchy hook in headline style (can be in caps for emphasis), e.g. "🚨 M-PESA ROBBERY: 3 Suspects Arrested After Yatta Raid!"
+2. One more short sentence giving the single most important extra detail from the story.
+3. A brief question inviting comments, directly related to the story (e.g. "What do you think should happen to them?").
+4. End with exactly this line, word for word: "📌 Full news report and updates in the comments below!"
+
+Keep the whole caption to 3-4 short lines. Never include a URL or link. Never use hashtags in facebookCaption. Base it only on facts already in the article - never invent new details for the hook.
+
 Return ONLY valid JSON.
 Do not use markdown fences.
 
@@ -98,7 +110,7 @@ Return exactly this shape:
 
   "article": "3-6 full original paragraphs (plain text, paragraphs separated by \\\\n\\\\n) covering the story properly",
 
-  "facebookCaption": "1-2 sentence caption with a hook, no link",
+  "facebookCaption": "Facebook caption following the FACEBOOK CAPTION STYLE rules above exactly - emoji hook, extra detail, engagement question, then the exact comments CTA line - no link, no hashtags",
 
   "instagramCaption": "1-2 sentence caption + 3-5 relevant hashtags, no link",
 
