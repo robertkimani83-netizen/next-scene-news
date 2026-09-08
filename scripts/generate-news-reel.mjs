@@ -114,8 +114,8 @@ async function main() {
   const photoPath = await downloadTo(article.imageUrl, path.join(runDir, "photo.jpg"));
 
   const narrationText = `${article.title}. ${article.teaser || ""}`.trim();
-  console.log("[tts] synthesizing narration (en-US-ChristopherNeural)...");
-  const { audioPath, sentences } = await synthesizeNarration(narrationText, runDir);
+  console.log("[tts] synthesizing narration (en-KE-ChilembaNeural, Kenyan English)...");
+  const { audioPath, sentences } = await synthesizeNarration(narrationText, runDir, "en-KE-ChilembaNeural");
   const totalSec = Math.max(
     (sentences.at(-1)?.startSec ?? 0) + (sentences.at(-1)?.durationSec ?? 0),
     6
