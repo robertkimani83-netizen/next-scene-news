@@ -28,11 +28,21 @@ async function findPexelsVideo(query) {
   const video = data.videos?.[0];
   if (!video) return null;
 
-  // pick the best HD-ish file (prefer ~1920 width, mp4)
+  // Pick the sharpest usable file: prefer the SMALLEST file that still
+  // meets our 1920px target (no point downloading a much bigger 4K master
+  // than we'll ever render at), but if nothing reaches 1920, fall back to
+  // the LARGEST available rather than settling for something small.
+  // The previous "closest to 1920" sort was a real bug — it treated a
+  // 1280-wide file (640 away) as a better match than an available 3840
+  // 4K file (1920 away), so it was actively picking soft/blurry source
+  // clips over sharper ones whenever both existed. That's what was making
+  // some videos look noticeably less clear than others.
+  const MIN_TARGET_WIDTH = 1920;
   const files = (video.video_files || [])
     .filter((f) => f.file_type === "video/mp4" && f.width)
-    .sort((a, b) => Math.abs(a.width - 1920) - Math.abs(b.width - 1920));
-  const file = files[0];
+    .sort((a, b) => b.width - a.width); // largest first
+  const bigEnough = files.filter((f) => f.width >= MIN_TARGET_WIDTH);
+  const file = bigEnough.length ? bigEnough[bigEnough.length - 1] : files[0];
   if (!file) return null;
 
   return { url: file.link, type: "video", durationSec: video.duration };

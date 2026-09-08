@@ -346,14 +346,13 @@ async function writeSrt(capSegments, srtPath) {
 
 /** Burns captions into the video (requires ffmpeg built with libass, and a
  * font available via fontconfig — install `fonts-dejavu-core` in CI).
- * BorderStyle=3 draws an opaque box behind the text sized to hug it (not a
- * full-width bar) — matching the tight black caption "card" look of Robert's
- * reference style — instead of BorderStyle=1's outline-only text, which let
- * a long wrapped sentence read as bare stacked lines with nothing grounding
- * them to the frame. Alignment=2 pins it bottom-center regardless of
- * player/theme defaults. Paired with writeSrt's short-phrase chunking above,
- * each card is now normally 1 line (occasionally 2), so this box stays
- * small and doesn't dominate the frame the way one long sentence used to.
+ * BorderStyle=1 is outline-only text — no filled background box (Robert
+ * tried the boxed look and asked to drop the black background again, but
+ * keep the short-phrase chunking from writeSrt above, which is the part
+ * that actually fixed a long sentence swallowing the frame). A thicker
+ * Outline + Shadow than the original pre-chunking style keeps each short
+ * caption legible over busy footage without a solid box behind it.
+ * Alignment=2 pins it bottom-center regardless of player/theme defaults.
  *
  * IMPORTANT: `fontSize`/`marginV` are ASS style units, not literal output
  * pixels — libass renders against a fixed default script resolution (its
@@ -373,7 +372,7 @@ async function burnSubtitles(inputPath, srtPath, outPath, dims = LANDSCAPE_DIMS,
   // sizes on both landscape and portrait canvases.
   const { fontSize = 12, marginV = 45 } = opts;
   const style =
-    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,BorderStyle=3,Outline=6,Shadow=0,Alignment=2,MarginV=${marginV}`;
+    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=${marginV}`;
   await ffmpeg([
     "-i", inputPath,
     "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,
