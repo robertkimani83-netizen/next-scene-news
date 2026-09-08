@@ -46,9 +46,11 @@ const DIMS = { width: 1080, height: 1920 };
 // Instead of ever repeating the headline/teaser to stretch the runtime,
 // pull in real, NEW sentences from the full rewritten article body
 // (article.article - see lib/ai.ts's RewrittenArticle.article, 3-6 original
-// paragraphs) until there's enough fresh material for a proper ~35-45s reel.
-const TARGET_NARRATION_WORDS = 100; // ~35-45s of speech at typical TTS pace
-const MIN_REEL_SECONDS = 30;
+// paragraphs) until there's enough fresh material - but the target is kept
+// small so the reel lands close to ~20s, a snappier length than a full
+// ~35-45s cut, still without ever repeating the headline/teaser.
+const TARGET_NARRATION_WORDS = 43; // ~20s of speech at this voice's measured pace
+const MIN_REEL_SECONDS = 18; // soft floor for a very short title+teaser only
 
 function buildNarrationText(article) {
   const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
@@ -157,7 +159,7 @@ async function main() {
   const totalSec = Math.max(
     (sentences.at(-1)?.startSec ?? 0) + (sentences.at(-1)?.durationSec ?? 0),
     MIN_REEL_SECONDS
-  ) + 0.6; // small tail pad so the last word isn't cut off, plus a 30s floor
+  ) + 0.6; // small tail pad so the last word isn't cut off, plus the floor above
 
   console.log(`[video] assembling ${totalSec.toFixed(1)}s portrait reel...`);
   const headlineFile = await writeDrawtextFile(
