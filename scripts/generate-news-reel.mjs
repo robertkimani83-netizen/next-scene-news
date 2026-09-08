@@ -41,18 +41,20 @@ const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const DIMS = { width: 1080, height: 1920 };
 
 // Measured live against the real en-KE-AsiliaNeural voice (not just an
-// assumed words/sec rate): title + teaser alone is already ~30-40 words, and
-// with this voice's actual pacing (including the natural pause between
-// segments) that alone lands close to the ~20s target on its own. A prior
-// pass here targeted 43 words assuming a faster flat rate and measured 48
-// words -> a 29.7s reel in a live GitHub Actions run - too long - so the
-// target below is kept low enough that title+teaser normally satisfies it
-// outright, with extra sentences from the full article body
-// (article.article - see lib/ai.ts's RewrittenArticle.article, 3-6 original
-// paragraphs) pulled in only on a day the title+teaser is unusually short,
-// so the clip never repeats the headline/teaser to pad itself out.
+// assumed words/sec rate) - and it varies a lot by article, because
+// title+teaser length itself varies a lot: one live run measured 48 words
+// (title+teaser+1 extra sentence) -> a 29.7s reel (too long), while another
+// measured just a 25-word title+teaser alone -> only 15.6s of speech, which
+// is right back in "feels like it's looping" territory for the viewer. So
+// TARGET_NARRATION_WORDS is kept low (title+teaser alone is normally already
+// over it, so extra sentences from the full article body - article.article,
+// see lib/ai.ts's RewrittenArticle.article, 3-6 original paragraphs - only
+// get pulled in on a day title+teaser is unusually short) while
+// MIN_REEL_SECONDS is a hard floor that guarantees ~20s even on that short
+// day, so the clip is never too brief to feel like real content without
+// ever repeating the headline/teaser to pad itself out.
 const TARGET_NARRATION_WORDS = 20; // title+teaser alone is normally already over this
-const MIN_REEL_SECONDS = 15; // soft floor for an unusually short title+teaser
+const MIN_REEL_SECONDS = 19.4; // + the 0.6s tail pad below = a firm ~20s floor
 
 function buildNarrationText(article) {
   const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
