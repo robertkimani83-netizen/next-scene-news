@@ -151,7 +151,11 @@ async function renderTitleCard(lines, durationSec, outPath, opts = {}) {
     `[1:v]scale=-1:${logoH}[logo]`,
     `[dimmed][logo]overlay=x=${margin}:y=${marginTop}[b0]`,
     `[b0]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(wordmarkFile)}:fontcolor=white:fontsize=${wordmarkFontsize}:box=1:boxcolor=${theme.wordmarkBg}:boxborderw=${wordmarkBoxBorder}:x=w-text_w-${margin}:y=${wordmarkY}[b1]`,
-    `[b1]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${titleFontsize}:bordercolor=black:borderw=3:x=(w-text_w)/2:y=(h-text_h)/2${sub ? `-${scaleY(36, dims)}` : ""}[b2]`,
+    // Bolder, colored outline (theme.accent instead of plain black, thicker)
+    // so the headline reads as a real thumbnail-style hook rather than plain
+    // captioned text — matches the punchier look of the channel's own
+    // best-performing thumbnails (bold outlined lettering, not a flat frame grab).
+    `[b1]drawtext=fontfile=${FONT_BOLD}:textfile=${escapeFilterPath(mainFile)}:fontcolor=white:fontsize=${titleFontsize}:bordercolor=${theme.accent}:borderw=${scaleX(6, dims)}:x=(w-text_w)/2:y=(h-text_h)/2${sub ? `-${scaleY(36, dims)}` : ""}[b2]`,
   ];
   let last = "b2";
   if (sub) {
@@ -336,6 +340,25 @@ async function burnSubtitles(inputPath, srtPath, outPath, dims = LANDSCAPE_DIMS,
     "-an",
     outPath,
   ]);
+}
+
+/** Grabs a single still frame from the assembled video to use as the
+ * YouTube thumbnail, instead of letting YouTube auto-pick a random frame
+ * (which is what was happening before — often landing mid-sentence on a
+ * cluttered caption frame). `atSec` should land inside the branded intro
+ * card so the thumbnail matches the channel's designed look rather than
+ * whatever stock footage happens to be on screen at that timestamp. Caller
+ * computes atSec from the real intro-card duration for that video so this
+ * never overshoots into the next segment. */
+export async function extractThumbnail(videoPath, outPath, atSec = 1.0) {
+  await ffmpeg([
+    "-ss", Math.max(0, atSec).toFixed(2),
+    "-i", videoPath,
+    "-frames:v", "1",
+    "-q:v", "2",
+    outPath,
+  ]);
+  return outPath;
 }
 
 /**

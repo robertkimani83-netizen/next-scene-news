@@ -19,10 +19,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
-import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES } from "./lib/ffmpeg-build.mjs";
+import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
 import { generateScript } from "./lib/script-gen.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
-import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist } from "./lib/youtube.mjs";
+import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
 import { buildHashtags, buildTags } from "./lib/seo.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,6 +127,7 @@ async function main() {
 
   console.log("[visuals] fetching real clips/photos per segment (portrait)...");
   const segmentsForBuild = [];
+  let introDurationSec = 0; // real TTS timing for the intro card, used to pick a safe thumbnail-frame timestamp
   for (let i = 0; i < script.segments.length; i++) {
     const timing = sentences[i] ?? {
       durationSec: (sentences.at(-1)?.startSec + sentences.at(-1)?.durationSec || 30) / script.segments.length,
@@ -135,6 +136,7 @@ async function main() {
     if (script.segments[i].isIntro) {
       const bgVisual = await fetchVisualForSegment({ query: INTRO_BG_QUERY }, runDir, i).catch(() => null);
       visual = { type: "title-card", lines: introCardLines, fontsize: 58, bgVisual };
+      introDurationSec += timing.durationSec;
       console.log(`  segment ${i}: intro card — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)${bgVisual ? "" : " [no bg photo found, using flat card]"}`);
     } else {
       visual = await fetchVisualForSegment(
@@ -184,6 +186,21 @@ async function main() {
     console.warn(`[warn] this short is ${totalSec.toFixed(1)}s — over 60s risks YouTube not treating it as a Short.`);
   }
 
+  // Grab a still frame from inside the branded intro card to use as the real
+  // YouTube thumbnail, instead of leaving it to YouTube's own auto-pick
+  // (which was landing on random mid-video caption frames). Non-fatal —
+  // falls back to YouTube's default behavior if this fails for any reason.
+  const thumbnailPath = path.join(runDir, "thumbnail.jpg");
+  let thumbnailReady = false;
+  try {
+    const atSec = Math.max(0.3, Math.min(1.5, introDurationSec * 0.5));
+    await extractThumbnail(outputPath, thumbnailPath, atSec);
+    thumbnailReady = true;
+    console.log(`[thumbnail] extracted frame at ${atSec.toFixed(2)}s`);
+  } catch (err) {
+    console.warn(`[thumbnail] extraction failed (upload will keep YouTube's auto-picked frame): ${err.message}`);
+  }
+
   if (NO_UPLOAD) {
     console.log("[upload] skipped (--no-upload)");
     return;
@@ -208,6 +225,15 @@ async function main() {
     .join("\n");
   const uploaded = await uploadToYouTube(outputPath, title, description, { tags });
   console.log(`[upload] done: https://youtube.com/watch?v=${uploaded.id}`);
+
+  if (thumbnailReady) {
+    try {
+      await setThumbnail(uploaded.id, thumbnailPath);
+      console.log("[thumbnail] custom thumbnail set");
+    } catch (err) {
+      console.warn(`[thumbnail] upload failed (video still uploaded fine, keeping YouTube's auto-picked frame): ${err.message}`);
+    }
+  }
 
   try {
     const playlistId = await getOrCreatePlaylist(PLAYLIST_TITLE, PLAYLIST_DESCRIPTION);

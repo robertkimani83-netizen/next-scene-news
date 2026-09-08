@@ -26,7 +26,7 @@ Style: fast-paced, hook-first, "NEXTSCENE TV - THE FUTURE UNCOVERED" tone. Grab 
 
 Return ONLY valid JSON, no markdown fences, in this exact shape:
 {
-  "title": "a short punchy YouTube title, under 60 characters",
+  "title": "a scroll-stopping YouTube title, under 60 characters. Avoid plain, generic ranking phrasing like 'Top 10 Richest Countries in Asia' — lead with a curiosity gap or a surprising claim that makes someone need to know the answer, e.g. in the spirit of (write NEW titles, never reuse these) 'The Country Nobody Saw Coming', 'Why This Nation Is Secretly Taking Over', 'The One Fact That Explains Everything'. Stay accurate to the real content — a stronger hook on the same facts, not clickbait that misleads.",
   "segments": [
     {
       "text": "one narration sentence",
@@ -46,7 +46,7 @@ Style: authoritative, cinematic, "NEXTSCENE TV - THE FUTURE UNCOVERED" tone — 
 
 Return ONLY valid JSON, no markdown fences, in this exact shape:
 {
-  "title": "a short punchy YouTube title, under 70 characters",
+  "title": "a scroll-stopping YouTube title, under 70 characters. Avoid plain, generic ranking phrasing like 'Top 10 Richest Countries in Africa' — lead with a curiosity gap, a surprising claim, or a superlative that makes someone need to know the answer, e.g. in the spirit of (write NEW titles, never reuse these) 'The Ranking That Will Surprise You', 'These Countries Are About To Change Everything', 'Why Nobody Saw This Coming'. Stay accurate to the real content — a stronger hook on the same facts, not clickbait that misleads.",
   "segments": [
     {
       "text": "one narration sentence",

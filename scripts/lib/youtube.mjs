@@ -66,6 +66,27 @@ export async function uploadToYouTube(videoPath, title, description, opts = {}) 
   return result;
 }
 
+/** Uploads a custom thumbnail for an already-uploaded video, replacing
+ * YouTube's auto-picked frame. Note: YouTube only allows custom thumbnails
+ * on channels that have completed phone verification (Studio > Settings >
+ * Channel > Feature eligibility) — if NEXTSCENE TV's channel isn't verified
+ * yet this will fail with a 403, which callers should treat as non-fatal
+ * (the video stays uploaded fine, it just keeps YouTube's own frame pick). */
+export async function setThumbnail(videoId, imagePath) {
+  const fs = await import("node:fs/promises");
+  const accessToken = await getAccessToken();
+  const imageBuffer = await fs.readFile(imagePath);
+
+  const res = await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${videoId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "image/jpeg" },
+    body: imageBuffer,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error("YouTube thumbnail upload failed: " + JSON.stringify(data));
+  return data;
+}
+
 /** Finds an existing playlist on this channel with an exact title match, or
  * creates one. Used so every upload can be filed into a themed playlist
  * (grouping helps session watch time, which the algorithm rewards) without
