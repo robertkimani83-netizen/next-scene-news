@@ -230,11 +230,11 @@ async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSC
 
   // Vertical badge position is NOT a simple height-ratio scale of the
   // landscape numbers: a portrait canvas is much narrower (1080 vs 1920),
-// so the same caption wraps onto roughly twice as many lines and needs
-// much more reserved space at the bottom — a naive proportional scale
-// pushes the badge low enough that a wrapped caption collides with it
-// (caught while testing the Shorts path). So portrait gets its own,
-// higher-up tuned position instead, leaving a generous caption zone below.
+  // so the same caption wraps onto roughly twice as many lines and needs
+  // much more reserved space at the bottom — a naive proportional scale
+  // pushes the badge low enough that a wrapped caption collides with it
+  // (caught while testing the Shorts path). So portrait gets its own,
+  // higher-up tuned position instead, leaving a generous caption zone below.
   const isPortrait = dims.height > dims.width;
   const { flagY, rankY, nameY } = isPortrait
     ? { flagY: 520, rankY: 430, nameY: 660 }
@@ -300,21 +300,60 @@ function srtTimestamp(sec) {
   return `${pad(h)}:${pad(m)}:${pad(s)},${pad(msRem, 3)}`;
 }
 
+// Robert flagged (real upload, Sep 8 2026) that a full script sentence held
+// on screen for its whole segment was wrapping into 6-7 stacked lines and
+// swallowing most of the portrait frame — nothing like the short, boxed
+// caption "cards" his older InVideo-made Shorts used (one clause at a time,
+// 1-2 lines, tight black box hugging the text). MAX_CAPTION_WORDS chunks
+// each segment's sentence into short phrases so every caption card reads
+// like that reference style instead of one long wrapped paragraph.
+const MAX_CAPTION_WORDS = 6;
+
+function chunkCaptionText(text, maxWords = MAX_CAPTION_WORDS) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < words.length; i += maxWords) {
+    chunks.push(words.slice(i, i + maxWords).join(" "));
+  }
+  return chunks.length ? chunks : [text];
+}
+
 /** Writes an SRT file whose timings match the actual on-screen segment
  * timeline built below (not the raw TTS boundaries), so captions always
- * land exactly on the clip they belong to even if a visual was skipped. */
+ * land exactly on the clip they belong to even if a visual was skipped.
+ * Each segment's sentence is split into short (<= MAX_CAPTION_WORDS) chunks
+ * that each get their own caption card, sized by their share of the
+ * segment's real spoken duration (proportional to character count, since we
+ * only have per-sentence TTS timing, not per-word) — so a short trailing
+ * chunk doesn't linger as long as a long opening chunk. */
 async function writeSrt(capSegments, srtPath) {
-  const blocks = capSegments.map(
-    (seg, i) =>
-      `${i + 1}\n${srtTimestamp(seg.startSec)} --> ${srtTimestamp(seg.startSec + seg.durationSec)}\n${seg.text}\n`
-  );
+  const blocks = [];
+  let idx = 1;
+  for (const seg of capSegments) {
+    const chunks = chunkCaptionText(seg.text);
+    const totalChars = chunks.reduce((sum, c) => sum + c.length, 0) || 1;
+    let t = seg.startSec;
+    for (const chunk of chunks) {
+      const share = (chunk.length / totalChars) * seg.durationSec;
+      const dur = Math.max(share, 0.5); // floor so a tiny trailing chunk doesn't flash by unreadably
+      blocks.push(`${idx}\n${srtTimestamp(t)} --> ${srtTimestamp(t + dur)}\n${chunk}\n`);
+      idx++;
+      t += share; // advance by the real proportional share, not the floored dur, so chunks never overrun the segment
+    }
+  }
   await fs.writeFile(srtPath, blocks.join("\n"), "utf-8");
 }
 
 /** Burns captions into the video (requires ffmpeg built with libass, and a
  * font available via fontconfig — install `fonts-dejavu-core` in CI).
- * BorderStyle=1 is an outline only — no filled background box behind the
- * text; Alignment=2 pins it bottom-center regardless of player/theme defaults.
+ * BorderStyle=3 draws an opaque box behind the text sized to hug it (not a
+ * full-width bar) — matching the tight black caption "card" look of Robert's
+ * reference style — instead of BorderStyle=1's outline-only text, which let
+ * a long wrapped sentence read as bare stacked lines with nothing grounding
+ * them to the frame. Alignment=2 pins it bottom-center regardless of
+ * player/theme defaults. Paired with writeSrt's short-phrase chunking above,
+ * each card is now normally 1 line (occasionally 2), so this box stays
+ * small and doesn't dominate the frame the way one long sentence used to.
  *
  * IMPORTANT: `fontSize`/`marginV` are ASS style units, not literal output
  * pixels — libass renders against a fixed default script resolution (its
@@ -322,23 +361,19 @@ async function writeSrt(capSegments, srtPath) {
  * never does) and then scales that render up to fill the real frame. That
  * scale-up is proportional to frame height, so the SAME nominal fontSize
  * already ends up occupying the same *fraction* of the frame regardless of
- * whether the frame is 1080 or 1920 tall — measured and confirmed: 24/50
- * produces a visually equivalent caption on both the landscape and portrait
- * canvas. Do NOT scale these by dims — that double-counts libass's own
- * scaling and produces oversized, overlapping captions (verified — this was
- * an actual bug caught while testing the Shorts/portrait path). Bump
+ * whether the frame is 1080 or 1920 tall. Do NOT scale these by dims — that
+ * double-counts libass's own scaling and produces oversized captions. Bump
  * fontSize a little for deliberately larger mobile captions if wanted, but
- * treat it as a flat override, not a dims-derived multiplier.
- *
- * BorderStyle=3 (rather than the old outline-only BorderStyle=1) draws a
- * semi-transparent dark box behind the caption text (BackColour, ~60%
- * opaque) — on a bright or busy background a thin outline alone could still
- * wash out; a solid backing bar keeps the words readable no matter what's
- * playing behind them, same as the caption style on most Shorts/Reels. */
+ * treat it as a flat override, not a dims-derived multiplier. */
 async function burnSubtitles(inputPath, srtPath, outPath, dims = LANDSCAPE_DIMS, opts = {}) {
-  const { fontSize = 24, marginV = 50 } = opts;
+  // fontSize dropped from 18 to 12 alongside the short-phrase chunking above —
+  // 18 was tuned for one long sentence wrapped across many lines; at 12, a
+  // typical <=6-word caption card sits comfortably on 1 line (2 for a longer
+  // chunk) instead of overflowing, verified by rendering real frames at both
+  // sizes on both landscape and portrait canvases.
+  const { fontSize = 12, marginV = 45 } = opts;
   const style =
-    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H99000000,BorderStyle=3,Outline=1,Shadow=0,Alignment=2,MarginV=${marginV}`;
+    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,BorderStyle=3,Outline=6,Shadow=0,Alignment=2,MarginV=${marginV}`;
   await ffmpeg([
     "-i", inputPath,
     "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,
