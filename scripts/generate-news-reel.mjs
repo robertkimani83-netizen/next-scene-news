@@ -40,6 +40,44 @@ const FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const DIMS = { width: 1080, height: 1920 };
 
+// Title + teaser alone is only ~30-40 words (~12-13s of speech) - too short
+// for a real Reel, and holding a single static photo for that little time
+// reads as if the clip is just looping the same few words on repeat.
+// Instead of ever repeating the headline/teaser to stretch the runtime,
+// pull in real, NEW sentences from the full rewritten article body
+// (article.article - see lib/ai.ts's RewrittenArticle.article, 3-6 original
+// paragraphs) until there's enough fresh material for a proper ~35-45s reel.
+const TARGET_NARRATION_WORDS = 100; // ~35-45s of speech at typical TTS pace
+const MIN_REEL_SECONDS = 30;
+
+function buildNarrationText(article) {
+  const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
+  const asSentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+  const segments = [];
+  const title = (article.title || "").trim();
+  if (title) segments.push(asSentence(title));
+  const teaser = (article.teaser || "").trim();
+  if (teaser) segments.push(asSentence(teaser));
+
+  // Split the full article body into individual sentences so we can add
+  // them one at a time - never the same sentence twice - until there's
+  // enough material, rather than repeating the title/teaser to fill time.
+  const body = (article.article || "").replace(/\s+/g, " ").trim();
+  const bodySentences = body.match(/[^.!?]+[.!?]+/g) || (body ? [body] : []);
+
+  let total = segments.reduce((n, s) => n + wordCount(s), 0);
+  for (const sentence of bodySentences) {
+    if (total >= TARGET_NARRATION_WORDS) break;
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+    segments.push(trimmed);
+    total += wordCount(trimmed);
+  }
+
+  return segments.join(" ");
+}
+
 async function ffmpeg(args) {
   try {
     return await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...args], {
@@ -113,13 +151,13 @@ async function main() {
   console.log("[photo] downloading real article photo...");
   const photoPath = await downloadTo(article.imageUrl, path.join(runDir, "photo.jpg"));
 
-  const narrationText = `${article.title}. ${article.teaser || ""}`.trim();
-  console.log("[tts] synthesizing narration (en-KE-ChilembaNeural, Kenyan English)...");
-  const { audioPath, sentences } = await synthesizeNarration(narrationText, runDir, "en-KE-ChilembaNeural");
+  const narrationText = buildNarrationText(article);
+  console.log(`[tts] synthesizing narration (en-KE-AsiliaNeural, Kenyan English, ${narrationText.split(/\s+/).length} words)...`);
+  const { audioPath, sentences } = await synthesizeNarration(narrationText, runDir, "en-KE-AsiliaNeural");
   const totalSec = Math.max(
     (sentences.at(-1)?.startSec ?? 0) + (sentences.at(-1)?.durationSec ?? 0),
-    6
-  ) + 0.6; // small tail pad so the last word isn't cut off
+    MIN_REEL_SECONDS
+  ) + 0.6; // small tail pad so the last word isn't cut off, plus a 30s floor
 
   console.log(`[video] assembling ${totalSec.toFixed(1)}s portrait reel...`);
   const headlineFile = await writeDrawtextFile(
