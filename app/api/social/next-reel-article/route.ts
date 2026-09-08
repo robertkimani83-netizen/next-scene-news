@@ -27,6 +27,12 @@ async function markPosted(id: string): Promise<void> {
   });
 }
 
+// Reels should only cover genuinely trending/important stories, not every
+// routine article that gets rewritten - lib/ai.ts already scores each one's
+// importance ("breaking" | "high" | "normal" | "low") at rewrite time, so
+// reuse that instead of treating every article as Reel-worthy.
+const TRENDING_IMPORTANCE = new Set(['breaking', 'high']);
+
 export async function GET() {
   try {
     const articles = await loadArticles();
@@ -39,6 +45,7 @@ export async function GET() {
     const eligible: typeof articles = [];
     for (const article of articles) {
       if (!article.photo?.url) continue;
+      if (!TRENDING_IMPORTANCE.has(article.importance)) continue;
       if (await isPosted(article.id)) continue;
       eligible.push(article);
     }
@@ -47,7 +54,7 @@ export async function GET() {
       eligible.find((a) => a.photo && !a.photo.isFallback) ?? eligible[0] ?? null;
 
     if (!pick) {
-      return NextResponse.json({ error: 'No unposted articles with a usable photo found' }, { status: 404 });
+      return NextResponse.json({ error: 'No unposted trending (breaking/high importance) articles with a usable photo found' }, { status: 404 });
     }
 
     await markPosted(pick.id);
