@@ -33,13 +33,17 @@ async function warmUrl(url, label) {
 }
 
 async function postToFacebook(article) {
-  // Posts through the Make.com scenario (Webhooks -> Facebook Pages: Create a Post)
-  // instead of calling the Facebook Graph API directly.
+  // Posts through the Make.com scenario (Webhooks -> Facebook Pages: Create a
+  // Post With Photos, then Facebook Pages: Create a Comment). The scenario
+  // publishes `facebookCaption` as a photo post with NO link in the post body
+  // (link posts get their organic reach suppressed by Facebook) and adds
+  // `link` as the first comment instead, one tap away.
   const body = {
     title: article.title,
     teaser: article.teaser,
     image: article.imageUrl,
     link: article.articleUrl,
+    facebookCaption: article.facebookCaption,
   };
 
   const res = await fetch(MAKE_WEBHOOK_URL, {
