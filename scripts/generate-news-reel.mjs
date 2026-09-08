@@ -40,17 +40,19 @@ const FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const DIMS = { width: 1080, height: 1920 };
 
-// Title + teaser alone is only ~30-40 words (~12-13s of speech) - too short
-// for a real Reel, and holding a single static photo for that little time
-// reads as if the clip is just looping the same few words on repeat.
-// Instead of ever repeating the headline/teaser to stretch the runtime,
-// pull in real, NEW sentences from the full rewritten article body
+// Measured live against the real en-KE-AsiliaNeural voice (not just an
+// assumed words/sec rate): title + teaser alone is already ~30-40 words, and
+// with this voice's actual pacing (including the natural pause between
+// segments) that alone lands close to the ~20s target on its own. A prior
+// pass here targeted 43 words assuming a faster flat rate and measured 48
+// words -> a 29.7s reel in a live GitHub Actions run - too long - so the
+// target below is kept low enough that title+teaser normally satisfies it
+// outright, with extra sentences from the full article body
 // (article.article - see lib/ai.ts's RewrittenArticle.article, 3-6 original
-// paragraphs) until there's enough fresh material - but the target is kept
-// small so the reel lands close to ~20s, a snappier length than a full
-// ~35-45s cut, still without ever repeating the headline/teaser.
-const TARGET_NARRATION_WORDS = 43; // ~20s of speech at this voice's measured pace
-const MIN_REEL_SECONDS = 18; // soft floor for a very short title+teaser only
+// paragraphs) pulled in only on a day the title+teaser is unusually short,
+// so the clip never repeats the headline/teaser to pad itself out.
+const TARGET_NARRATION_WORDS = 20; // title+teaser alone is normally already over this
+const MIN_REEL_SECONDS = 15; // soft floor for an unusually short title+teaser
 
 function buildNarrationText(article) {
   const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
