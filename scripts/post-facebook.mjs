@@ -18,23 +18,32 @@ async function getArticle() {
 // the page was warm. Hitting the article URL ourselves first warms up the
 // function so Facebook's fetch, moments later, succeeds and gets the real
 // og:image instead of leaving the post with a blank placeholder.
-async function warmArticlePage(url) {
+//
+// The og:image itself now points at app/api/og/[id] (a separate Vercel
+// function, generates the branded headline+logo card) instead of a static
+// stock photo, so it can go cold independently of the article page - warm
+// both before Make.com/Facebook ever try to fetch either one.
+async function warmUrl(url, label) {
   try {
     const res = await fetch(url, { method: 'GET' });
-    console.log(`Warmed article page (${res.status}): ${url}`);
+    console.log(`Warmed ${label} (${res.status}): ${url}`);
   } catch (err) {
-    console.log(`Warm-up request failed, continuing anyway: ${err.message}`);
+    console.log(`Warm-up of ${label} failed, continuing anyway: ${err.message}`);
   }
 }
 
 async function postToFacebook(article) {
-  // Posts through the Make.com scenario (Webhooks -> Facebook Pages: Create a Post)
-  // instead of calling the Facebook Graph API directly.
+  // Posts through the Make.com scenario (Webhooks -> Facebook Pages: Create a
+  // Post With Photos, then Facebook Pages: Create a Comment). The scenario
+  // publishes `facebookCaption` as a photo post with NO link in the post body
+  // (link posts get their organic reach suppressed by Facebook) and adds
+  // `link` as the first comment instead, one tap away.
   const body = {
     title: article.title,
     teaser: article.teaser,
     image: article.imageUrl,
     link: article.articleUrl,
+    facebookCaption: article.facebookCaption,
   };
 
   const res = await fetch(MAKE_WEBHOOK_URL, {
@@ -66,7 +75,10 @@ async function main() {
     }
 
     console.log('Posting:', article.title);
-    await warmArticlePage(article.articleUrl);
+    await warmUrl(article.articleUrl, 'article page');
+    if (article.imageUrl) {
+      await warmUrl(article.imageUrl, 'branded card image');
+    }
     try {
       await postToFacebook(article);
       console.log('Sent to Make webhook successfully.');

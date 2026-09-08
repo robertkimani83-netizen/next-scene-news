@@ -80,10 +80,10 @@ export async function GET(
               left: 0,
               right: 0,
               bottom: 0,
-              height: "260px",
+              height: "320px",
               display: "flex",
               background:
-                "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0) 100%)",
+                "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.6) 60%, rgba(0,0,0,0) 100%)",
             }}
           />
 
@@ -158,10 +158,10 @@ export async function GET(
               style={{
                 display: "flex",
                 color: "#ffffff",
-                fontSize: "42px",
+                fontSize: "58px",
                 fontWeight: 800,
-                lineHeight: 1.2,
-                maxWidth: "1050px",
+                lineHeight: 1.15,
+                maxWidth: "1080px",
               }}
             >
               {headline}
@@ -470,7 +470,7 @@ export async function GET(
               fontWeight: 600,
               letterSpacing: "1px",
             }}
-          >
+        >
             VOX254 — The Voice of 254
           </span>
         </div>

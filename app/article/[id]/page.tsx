@@ -30,10 +30,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const articleUrl = `${BASE_URL}/article/${article.id}`;
 
-  const imageUrl =
-    article.photo && !article.photo.isFallback
-      ? article.photo.url
-      : `${BASE_URL}/vox254_logo.png`;
+  // Branded social card (headline text + VOX254 logo burned into the photo,
+  // via app/api/og/[id]/route.tsx) rather than the raw stock photo - this is
+  // what Facebook/X/etc. actually scrape and display when the article link
+  // is shared or posted, so the wording and logo only show up if we point
+  // here instead of at article.photo.url directly.
+  const imageUrl = `${BASE_URL}/api/og/${article.id}`;
 
   return {
     title: `${article.headline} | VOX254`,
@@ -101,10 +103,9 @@ export default async function ArticlePage({ params }: Props) {
 
   const articleUrl = `${BASE_URL}/article/${article.id}`;
 
-  const imageUrl =
-    article.photo && !article.photo.isFallback
-      ? article.photo.url
-      : `${BASE_URL}/vox254_logo.png`;
+  // Same branded card as generateMetadata() above - keeps structured data's
+  // "image" field consistent with what's actually shared/posted.
+  const imageUrl = `${BASE_URL}/api/og/${article.id}`;
 
   const structuredData = {
     "@context": "https://schema.org",

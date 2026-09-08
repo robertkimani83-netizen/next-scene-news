@@ -9,7 +9,9 @@
     "generate": "node scripts/generate-documentary.mjs",
     "test-no-upload": "node scripts/generate-documentary.mjs --no-upload",
     "generate-short": "node scripts/generate-short.mjs",
-    "test-short-no-upload": "node scripts/generate-short.mjs --no-upload"
+    "test-short-no-upload": "node scripts/generate-short.mjs --no-upload",
+    "generate-news-reel": "node scripts/generate-news-reel.mjs",
+    "test-news-reel-no-upload": "node scripts/generate-news-reel.mjs --no-upload"
   },
   "dependencies": {
     "next": "^14.2.5",

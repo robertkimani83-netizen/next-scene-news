@@ -230,11 +230,11 @@ async function overlayCountryBadge(inputPath, badge, dur, outPath, dims = LANDSC
 
   // Vertical badge position is NOT a simple height-ratio scale of the
   // landscape numbers: a portrait canvas is much narrower (1080 vs 1920),
-  // so the same caption wraps onto roughly twice as many lines and needs
-  // much more reserved space at the bottom — a naive proportional scale
-  // pushes the badge low enough that a wrapped caption collides with it
-  // (caught while testing the Shorts path). So portrait gets its own,
-  // higher-up tuned position instead, leaving a generous caption zone below.
+// so the same caption wraps onto roughly twice as many lines and needs
+// much more reserved space at the bottom — a naive proportional scale
+// pushes the badge low enough that a wrapped caption collides with it
+// (caught while testing the Shorts path). So portrait gets its own,
+// higher-up tuned position instead, leaving a generous caption zone below.
   const isPortrait = dims.height > dims.width;
   const { flagY, rankY, nameY } = isPortrait
     ? { flagY: 520, rankY: 430, nameY: 660 }
@@ -322,17 +322,23 @@ async function writeSrt(capSegments, srtPath) {
  * never does) and then scales that render up to fill the real frame. That
  * scale-up is proportional to frame height, so the SAME nominal fontSize
  * already ends up occupying the same *fraction* of the frame regardless of
- * whether the frame is 1080 or 1920 tall — measured and confirmed: 18/45
+ * whether the frame is 1080 or 1920 tall — measured and confirmed: 24/50
  * produces a visually equivalent caption on both the landscape and portrait
  * canvas. Do NOT scale these by dims — that double-counts libass's own
  * scaling and produces oversized, overlapping captions (verified — this was
  * an actual bug caught while testing the Shorts/portrait path). Bump
  * fontSize a little for deliberately larger mobile captions if wanted, but
- * treat it as a flat override, not a dims-derived multiplier. */
+ * treat it as a flat override, not a dims-derived multiplier.
+ *
+ * BorderStyle=3 (rather than the old outline-only BorderStyle=1) draws a
+ * semi-transparent dark box behind the caption text (BackColour, ~60%
+ * opaque) — on a bright or busy background a thin outline alone could still
+ * wash out; a solid backing bar keeps the words readable no matter what's
+ * playing behind them, same as the caption style on most Shorts/Reels. */
 async function burnSubtitles(inputPath, srtPath, outPath, dims = LANDSCAPE_DIMS, opts = {}) {
-  const { fontSize = 18, marginV = 45 } = opts;
+  const { fontSize = 24, marginV = 50 } = opts;
   const style =
-    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=${marginV}`;
+    `FontName=DejaVu Sans,FontSize=${fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H99000000,BorderStyle=3,Outline=1,Shadow=0,Alignment=2,MarginV=${marginV}`;
   await ffmpeg([
     "-i", inputPath,
     "-vf", `subtitles=${escapeFilterPath(srtPath)}:force_style='${style}'`,

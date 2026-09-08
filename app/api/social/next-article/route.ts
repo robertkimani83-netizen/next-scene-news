@@ -69,7 +69,15 @@ export async function GET() {
         id: article.id,
         title: article.headline,
         teaser: article.teaser,
-        imageUrl: article.photo?.url || null,
+        // Punchier hook-first caption (emoji + hook + engagement question +
+        // "pinned in comments" CTA - see lib/ai.ts) used as the actual
+        // Facebook post text, instead of the plain headline+teaser. Falls
+        // back for the rare older article stored before this field existed.
+        facebookCaption: article.facebookCaption || `${article.headline}\n${article.teaser}`,
+        // Branded card (headline text + VOX254 logo burned in via
+        // app/api/og/[id]/route.tsx) rather than the raw stock photo -
+        // matches what the article page's og:image now points at too.
+        imageUrl: `${SITE_URL}/api/og/${article.id}`,
         articleUrl: `${SITE_URL}/article/${article.id}`,
       });
     }
