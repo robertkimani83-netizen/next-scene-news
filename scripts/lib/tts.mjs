@@ -9,6 +9,9 @@
 //   en-GB-RyanNeural         - British, serious/formal
 //   en-US-EricNeural         - calm, measured male
 //   en-US-AriaNeural         - clear female, versatile
+//   en-KE-ChilembaNeural     - Kenyan English, male (used for VOX254 News Reels
+//                              so narration sounds local rather than American)
+//   en-KE-AsiliaNeural       - Kenyan English, female
 //
 // docs: https://www.npmjs.com/package/msedge-tts
 
