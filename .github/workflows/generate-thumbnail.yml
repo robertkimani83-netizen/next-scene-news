@@ -1,0 +1,70 @@
+name: Generate NEXT SCENE TV Thumbnail
+
+# Standalone, on-demand thumbnail generator — give it a video title, get back
+# 1-3 bold documentary/news-style thumbnail variations as a downloadable
+# artifact. Independent of the video pipelines (generate-documentary.yml /
+# generate-short.yml), which also call the same underlying engine
+# (scripts/lib/thumbnail_compositor.py, via scripts/lib/thumbnail-gen.mjs)
+# automatically for every real video — this workflow is for testing prompts/
+# titles or generating a thumbnail on its own, without rendering a video.
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Video title, exactly as it should appear on the thumbnail"
+        type: string
+        required: true
+      style:
+        description: "Optional extra style hint (e.g. 'NEXT SCENE documentary')"
+        type: string
+        required: false
+        default: ""
+      variation_count:
+        description: "How many thumbnail variations to generate"
+        type: number
+        required: false
+        default: 3
+
+permissions:
+  contents: read
+
+jobs:
+  generate-thumbnail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install thumbnail generator dependencies (Pillow + FLUX via Hugging Face)
+        run: pip install --disable-pip-version-check pillow requests huggingface_hub
+
+      - name: Generate thumbnail variations
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # Passed as env vars (not interpolated directly into the shell
+          # script below) so a title containing quotes/backticks/$( ) can
+          # never break out of the command or get executed as shell code.
+          THUMB_TITLE: ${{ inputs.title }}
+          THUMB_STYLE: ${{ inputs.style }}
+          THUMB_VARIATIONS: ${{ inputs.variation_count }}
+        run: |
+          args=(--title "$THUMB_TITLE" --variations "$THUMB_VARIATIONS" --out-dir thumbnail-output)
+          if [ -n "$THUMB_STYLE" ]; then
+            args+=(--style "$THUMB_STYLE")
+          fi
+          python3 scripts/lib/thumbnail_compositor.py "${args[@]}"
+
+      - name: Upload thumbnail variations as artifact (kept 7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thumbnail-output
+          path: thumbnail-output/*.jpg
+          retention-days: 7
+          if-no-files-found: warn

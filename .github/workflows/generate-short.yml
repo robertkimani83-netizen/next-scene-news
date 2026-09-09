@@ -24,11 +24,18 @@ jobs:
         with:
           node-version: "20"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Install dependencies
         run: npm install
+
+      - name: Install thumbnail generator dependencies (Pillow + FLUX via Hugging Face)
+        run: pip install --disable-pip-version-check pillow requests huggingface_hub
 
       - name: Generate short (review only - manual run without "upload" checked)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
@@ -36,6 +43,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: npm run test-short-no-upload
 
       - name: Debug - check OAuth secret lengths
@@ -58,6 +66,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
@@ -77,10 +86,12 @@ jobs:
             echo "No topic history changes to commit"
           fi
 
-      - name: Upload short as artifact for review (kept 7 days)
+      - name: Upload short + thumbnail as artifacts for review (kept 7 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: short-output
-          path: tmp/*/final_short.mp4
+          path: |
+            tmp/*/final_short.mp4
+            tmp/*/thumbnail.jpg
           retention-days: 7
