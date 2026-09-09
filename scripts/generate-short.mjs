@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
+import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
 import { generateScript } from "./lib/script-gen.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
 import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
@@ -186,19 +187,29 @@ async function main() {
     console.warn(`[warn] this short is ${totalSec.toFixed(1)}s — over 60s risks YouTube not treating it as a Short.`);
   }
 
-  // Grab a still frame from inside the branded intro card to use as the real
-  // YouTube thumbnail, instead of leaving it to YouTube's own auto-pick
-  // (which was landing on random mid-video caption frames). Non-fatal —
-  // falls back to YouTube's default behavior if this fails for any reason.
+  // Custom thumbnail: try a real AI-generated, Canva-style bold design first
+  // (fresh background image + branded headline per video — see
+  // lib/thumbnail-gen.mjs for why this isn't a live Canva API call), and
+  // only fall back to grabbing a still frame from the branded intro card if
+  // that fails for any reason. Either way this beats leaving it to YouTube's
+  // own auto-pick (which was landing on random mid-video caption frames).
   const thumbnailPath = path.join(runDir, "thumbnail.jpg");
   let thumbnailReady = false;
-  try {
-    const atSec = Math.max(0.3, Math.min(1.5, introDurationSec * 0.5));
-    await extractThumbnail(outputPath, thumbnailPath, atSec);
+  console.log("[thumbnail] generating AI thumbnail...");
+  const aiThumbPath = await generateAiThumbnail({ title: script.title, topic, outDir: runDir, theme });
+  if (aiThumbPath) {
+    await fs.copyFile(aiThumbPath, thumbnailPath);
     thumbnailReady = true;
-    console.log(`[thumbnail] extracted frame at ${atSec.toFixed(2)}s`);
-  } catch (err) {
-    console.warn(`[thumbnail] extraction failed (upload will keep YouTube's auto-picked frame): ${err.message}`);
+    console.log("[thumbnail] AI-generated thumbnail ready");
+  } else {
+    try {
+      const atSec = Math.max(0.3, Math.min(1.5, introDurationSec * 0.5));
+      await extractThumbnail(outputPath, thumbnailPath, atSec);
+      thumbnailReady = true;
+      console.log(`[thumbnail] extracted frame at ${atSec.toFixed(2)}s (AI thumbnail unavailable)`);
+    } catch (err) {
+      console.warn(`[thumbnail] extraction failed too (upload will keep YouTube's auto-picked frame): ${err.message}`);
+    }
   }
 
   if (NO_UPLOAD) {
