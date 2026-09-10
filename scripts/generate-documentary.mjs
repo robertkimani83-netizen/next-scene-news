@@ -41,9 +41,19 @@ const NO_UPLOAD = process.argv.includes("--no-upload");
 const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-long.json");
 
 // NextScene TV's existing lane: Top 10 rankings, country/power comparisons,
-// "what's coming next" style predictions. 35 topics at 3 videos/week (the
-// current schedule) means the full pool cycles roughly every 11-12 weeks
-// before any topic repeats — extend freely, the picker adapts automatically.
+// "what's coming next" style predictions. Extend freely, the picker adapts
+// automatically.
+//
+// Sept 10 2026: added a second wave of topics grounded in what's actually
+// trending in geopolitics right now (state interventionism/economic
+// nationalism, the critical-minerals and rare-earths race, BRICS and
+// de-dollarization, Arctic resource competition, sovereign AI and cyber
+// warfare, water scarcity, Taiwan/chip-war tension, shifting military
+// alliances) — the original pool leaned heavily on "richest/most powerful"
+// country rankings, so this deliberately covers alliances, conflict risk,
+// and resource competition instead, to stop the channel repeating the same
+// handful of angles. 75 topics total at 3 videos/week means the full pool
+// now cycles roughly every 25 weeks before anything repeats.
 const TOPIC_POOL = [
   "Top 10 countries with the most powerful militaries in the world right now",
   "Top 10 fastest growing economies in the world and why they're rising",
@@ -80,6 +90,46 @@ const TOPIC_POOL = [
   "Top 10 countries investing the most in space exploration",
   "The nations racing to build the first commercial fusion reactors",
   "Top 10 countries with the most powerful economic sanctions leverage",
+  "Top 10 members of NATO by military spending and why they matter",
+  "Top 10 countries leading the global critical minerals race",
+  "Top 10 countries most affected by global water scarcity",
+  "Top 10 countries building sovereign AI systems to control their own future",
+  "Top 10 countries most exposed to the next global trade war",
+  "Top 10 countries racing to reduce their dependence on China's rare earths",
+  "Top 10 members of the BRICS alliance and their combined global power",
+  "Top 10 countries competing for control of the Arctic's hidden resources",
+  "Top 10 countries most active in cyber warfare right now",
+  "Top 10 countries with the fastest-growing drone warfare programs",
+  "Top 10 countries most at risk from de-dollarization",
+  "Top 10 countries leading the new global race for hypersonic weapons",
+  "Top 10 countries with the most strategic control over global shipping lanes",
+  "Top 10 countries reshaping Africa's alliances in the new global order",
+  "Top 10 countries in Latin America shifting their political alignment right now",
+  "Top 10 countries with the most influence over global semiconductor supply",
+  "Top 10 countries preparing for war over the world's most contested borders",
+  "Top 10 countries with the largest stockpiles of critical minerals",
+  "Top 10 countries building the next generation of nuclear submarines",
+  "Top 10 countries most likely to trigger the next global conflict",
+  "Top 10 countries with the most powerful intelligence-sharing alliances",
+  "Top 10 countries betting everything on space militarization",
+  "Top 10 countries with the strongest grip on the world's energy supply",
+  "Top 10 countries quietly preparing for a war over Taiwan",
+  "Top 10 countries with the fastest-growing defense industries",
+  "Top 10 countries most vulnerable to a global currency crisis",
+  "Top 10 countries using economic sanctions as their most powerful weapon",
+  "Top 10 countries forming new alliances to counter Western influence",
+  "Top 10 countries with the most advanced missile defense systems",
+  "Top 10 countries racing to dominate the global lithium and battery supply chain",
+  "Top 10 countries where migration is quietly reshaping global power",
+  "Top 10 countries with the biggest stake in the Middle East's new balance of power",
+  "Top 10 countries most dependent on a single foreign power for survival",
+  "Top 10 countries investing the most in underwater cable and data infrastructure security",
+  "Top 10 countries with the most contested maritime borders in the world",
+  "Top 10 countries where state control over private companies is growing fastest",
+  "Top 10 countries with the most at stake in the global race for nuclear energy",
+  "Top 10 countries building military bases furthest from their own borders",
+  "Top 10 countries most likely to redraw their alliances in the next five years",
+  "Top 10 countries with the most influence inside the United Nations Security Council",
 ];
 
 // Spoken mid-roll reminder — inserted into the narration itself so it's

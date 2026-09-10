@@ -36,9 +36,15 @@ const NO_UPLOAD = process.argv.includes("--no-upload");
 const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-short.json");
 
 // Punchy single-fact/single-country topics — deliberately NOT full Top-10
-// lists (those need the full ~60-90s runtime to land). 30 topics at 3
-// Shorts/day means the pool cycles roughly every 10 days before any topic
-// repeats — extend freely, the picker adapts automatically.
+// lists (those need the full ~60-90s runtime to land). Extend freely, the
+// picker adapts automatically.
+//
+// Sept 10 2026: added a second wave leaning into trending geopolitics —
+// alliances, resource competition, cyber/AI conflict, currency politics —
+// alongside the original "richest tiny country" angle, so the channel
+// isn't just cycling the same handful of wealth-superlative stories. 52
+// topics total at 3 Shorts/day means the pool now cycles roughly every 17
+// days before any topic repeats.
 const SHORT_TOPIC_POOL = [
   "Why Monaco has no income tax and how its economy actually works",
   "The country with the highest number of billionaires per capita",
@@ -70,6 +76,28 @@ const SHORT_TOPIC_POOL = [
   "The country with the world's largest sovereign gold reserve per capita",
   "Why Rwanda is called Africa's cleanest and safest country",
   "The nation betting its entire future on artificial intelligence",
+  "Why NATO's newest members are reshaping Europe's defense map",
+  "The country secretly stockpiling the world's rare earth minerals",
+  "Why BRICS is trying to build an alternative to the US dollar",
+  "The nation quietly building military bases across three continents",
+  "Why the Arctic is becoming the world's next resource battleground",
+  "The country with the most spies per capita in the world",
+  "Why Taiwan makes the world hold its breath every year",
+  "The nation that controls the world's most important shipping chokepoint",
+  "Why critical minerals are the new oil in global politics",
+  "The country using AI to reshape its entire military",
+  "Why water is becoming more valuable than oil in some countries",
+  "The smallest country with the biggest cyber warfare capability",
+  "Why de-dollarization is quietly gaining momentum worldwide",
+  "The nation building the world's most advanced hypersonic missiles",
+  "Why Africa is becoming the world's next geopolitical battleground",
+  "The country stockpiling weapons faster than any other right now",
+  "Why the Red Sea has become one of the world's most dangerous waterways",
+  "The nation with the most foreign military bases on Earth",
+  "Why semiconductor factories are now a matter of national security",
+  "The country betting its future on becoming an AI superpower",
+  "Why Latin America's politics are swinging in a new direction",
+  "The tiny alliance quietly building nuclear-powered submarines",
 ];
 
 // Background photo behind the intro card — same idea as the long-form
