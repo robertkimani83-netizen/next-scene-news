@@ -1,4 +1,4 @@
-name: Generate NextScene TV Short
+﻿name: Generate NextScene TV Short
 
 on:
   schedule:
@@ -45,20 +45,6 @@ jobs:
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: npm run test-short-no-upload
-
-      - name: Debug - check OAuth secret lengths
-        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
-        env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          echo "GOOGLE_CLIENT_ID length: ${#GOOGLE_CLIENT_ID} (expected 72)"
-          echo "GOOGLE_CLIENT_SECRET length: ${#GOOGLE_CLIENT_SECRET} (expected 35)"
-          echo "YOUTUBE_REFRESH_TOKEN length: ${#YOUTUBE_REFRESH_TOKEN} (expected 101)"
-          echo "GOOGLE_CLIENT_ID starts with: ${GOOGLE_CLIENT_ID:0:5}"
-          echo "GOOGLE_CLIENT_SECRET starts with: ${GOOGLE_CLIENT_SECRET:0:6}"
-          echo "YOUTUBE_REFRESH_TOKEN starts with: ${YOUTUBE_REFRESH_TOKEN:0:4}"
 
       - name: Generate and upload short (scheduled runs, or manual run with "upload" checked)
         if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'

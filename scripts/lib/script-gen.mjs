@@ -66,30 +66,48 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
 Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every segment about a specific country MUST name that country in both "location" and "visualQuery" — never leave the visual generic when a real place is being discussed, since the footage needs to visibly match the country being talked about.`;
 
   const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
+
+  // Sept 10 2026: real production runs showed every model in one pass
+  // failing back-to-back with transient "503 overloaded" responses (or,
+  // occasionally, one model handing back truncated/malformed JSON) — a
+  // one-off blip on Gemini's free tier, not a real outage, but with only a
+  // single pass through the model list that blip wasted an entire
+  // scheduled upload slot. Retrying the WHOLE list up to 3 times with a
+  // short, increasing delay between passes rides out that kind of transient
+  // failure almost every time, for the cost of at most ~15s of extra
+  // runtime on the rare pass that needs it.
+  const MAX_PASSES = 3;
   let lastErr;
-  for (const model of models) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        }
-      );
-      if (!res.ok) throw new Error(`${model} responded ${res.status}`);
-      const data = await res.json();
-      let raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-      raw = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
-      const parsed = JSON.parse(raw);
-      if (!parsed.segments?.length) throw new Error("no segments returned");
-      return parsed;
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[script] ${model} failed: ${err.message}, trying next model...`);
+  for (let pass = 1; pass <= MAX_PASSES; pass++) {
+    for (const model of models) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          }
+        );
+        if (!res.ok) throw new Error(`${model} responded ${res.status}`);
+        const data = await res.json();
+        let raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        raw = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
+        const parsed = JSON.parse(raw);
+        if (!parsed.segments?.length) throw new Error("no segments returned");
+        return parsed;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[script] ${model} failed (pass ${pass}/${MAX_PASSES}): ${err.message}, trying next model...`);
+      }
+    }
+    if (pass < MAX_PASSES) {
+      const delayMs = 5000 * pass; // 5s, then 10s
+      console.warn(`[script] all models failed on pass ${pass}/${MAX_PASSES} — waiting ${delayMs / 1000}s before retrying the full list...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
-  throw new Error(`all Gemini models failed: ${lastErr?.message}`);
+  throw new Error(`all Gemini models failed after ${MAX_PASSES} passes: ${lastErr?.message}`);
 }
 
 // Topic selection now lives in lib/topic-history.mjs (pickAndRecordTopic) —
