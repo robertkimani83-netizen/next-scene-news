@@ -32,7 +32,7 @@ import time
 import traceback
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 try:
     import requests
@@ -81,7 +81,7 @@ Video title: "{title}"
 
 Return ONLY valid JSON, no markdown fences, in this exact shape:
 {{
-  "image_prompt": "a single English sentence describing ONLY the visual scene for an AI image generator - dramatic, cinematic, photo-realistic, documentary/news aesthetic, specific to this title's subject (real places/objects/subjects implied by the title, e.g. cracked earth and burning skylines for a collapse story, military hardware and battlefield atmosphere for a war story, skyscrapers and currency for an economy story, a recognizable landscape/city for a place). The prompt MUST explicitly demand a clean image with NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks anywhere in the image - only a photographic/cinematic scene, since headline text is added separately afterward. Leave a plausible clear/dark area suitable for overlaid text.",
+  "image_prompt": "a single English sentence describing ONLY the visual scene for an AI image generator - dramatic, cinematic, photo-realistic, documentary/news aesthetic, specific to this title's subject (real places/objects/subjects implied by the title, e.g. cracked earth and burning skylines for a collapse story, military hardware and battlefield atmosphere for a war story, skyscrapers and currency for an economy story, a recognizable landscape/city for a place). Composition MUST place the main subject off-center, filling roughly the LEFT third or the RIGHT third of the frame (rule-of-thirds, never dead-center and never spread evenly across the whole frame), leaving the opposite side simple, darker and visually calm so headline text has a clean, uncluttered area to sit in without competing with busy detail. The prompt MUST explicitly demand a clean image with NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks anywhere in the image - only a photographic/cinematic scene, since headline text is added separately afterward.",
   "category": "one of: war, africa, economy, countries, cities, technology, disaster, people, other - whichever best matches the title's subject",
   "category_label": "a short 1-3 word ALL CAPS tag for a small corner banner, e.g. GLOBAL CRISIS, TOP RANKING, EXCLUSIVE REPORT - pick something that fits this specific title",
   "words": [
@@ -187,8 +187,9 @@ def _fallback_prompt(title: str, category: str) -> str:
     base = scene_by_category.get(category, scene_by_category["other"])
     return (
         f"{base}, strong depth, highly detailed, professional television documentary aesthetic, "
-        "intense atmosphere, composition optimized for a YouTube thumbnail with a clear dark area for "
-        "headline typography. Absolutely NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks "
+        "intense atmosphere, main subject placed off-center filling the left or right third of the frame "
+        "(rule of thirds, never dead-center), the opposite side kept simple and darker for headline "
+        "typography. Absolutely NO text, NO words, NO letters, NO numbers, NO logos, NO watermarks "
         "anywhere in the image - a clean photographic scene only."
     )
 
@@ -393,6 +394,27 @@ def draw_category_banner(base: Image.Image, label: str, font_path: Path, accent=
     return base
 
 
+def draw_pointer_accent(base: Image.Image, zone, accent=(255, 214, 10)) -> Image.Image:
+    """Small bold triangular chevron sitting just above the headline,
+    pointing down into it. CTR feedback on this channel's own thumbnails
+    specifically flagged 'no clear visual guidance for the viewer's eye' —
+    this is the standard low-risk fix news/documentary channels use: a
+    single bold accent shape that gives the eye somewhere to land. Skips
+    itself entirely if the layout doesn't leave enough clear room above the
+    headline zone, rather than risk overlapping the text."""
+    tip_y = zone[1] - 8
+    half, height = 24, 40
+    top_y = tip_y - height
+    if top_y < 10:
+        return base
+    draw = ImageDraw.Draw(base)
+    zone_w = zone[2] - zone[0]
+    cx = zone[0] + zone_w // 2
+    points = [(cx - half, top_y), (cx + half, top_y), (cx, tip_y)]
+    draw.polygon(points, fill=accent, outline=OUTLINE_COLOR, width=4)
+    return base
+
+
 def paste_logo(base: Image.Image, logo_path: Path, corner: str = "bottom-right"):
     if not logo_path.exists():
         return base
@@ -431,13 +453,20 @@ LAYOUTS = [
 
 def compose_thumbnail(bg: Image.Image, analysis: dict, variation_index: int) -> Image.Image:
     im = cover_crop(bg, OUT_WIDTH, OUT_HEIGHT)
-    # cinematic contrast/saturation nudge so an AI photo reads as bold TV-doc footage
+    # cinematic contrast nudge so an AI photo reads as bold TV-doc footage —
+    # then a small saturation PULLBACK (FLUX backgrounds plus autocontrast
+    # tend to read as over-intense/oversaturated once the headline colors
+    # are layered on top; CTR feedback on this channel's own thumbnails
+    # flagged exactly that). 0.88 keeps things punchy without tipping into
+    # the neon/over-saturated look.
     im = ImageOps.autocontrast(im, cutoff=1)
+    im = ImageEnhance.Color(im).enhance(0.88)
 
     top_frac, bottom_frac, band_top, logo_corner, show_banner = LAYOUTS[variation_index % len(LAYOUTS)]
     im = darken_band(im, band_top, 1.0 if bottom_frac > 0.9 else bottom_frac, opacity=0.60)
 
     zone = (48, int(OUT_HEIGHT * top_frac), OUT_WIDTH - 48, int(OUT_HEIGHT * bottom_frac))
+    im = draw_pointer_accent(im, zone)
     im = draw_headline(im, analysis["words"], zone, FONT_PATH)
 
     if show_banner:

@@ -24,6 +24,8 @@ export async function generateScript(topic, opts = {}) {
 
 Style: fast-paced, hook-first, "NEXTSCENE TV - THE FUTURE UNCOVERED" tone. Grab attention in the FIRST sentence — no throat-clearing, no "did you know", start with the surprising fact or claim itself. Short sentences, punchy delivery, one clear takeaway. End with a quick line encouraging the viewer to follow for more (not a full sentence about subscribing — keep it snappy, e.g. "Follow for more.").
 
+Accuracy: only state facts, figures and rankings you're genuinely confident are well-established and broadly reported — round or approximate a number rather than invent a precise-sounding one you're not sure of. This audience is quick to call out channels in the comments for numbers that seem made up, so a vague-but-true claim beats a specific-but-shaky one.
+
 Return ONLY valid JSON, no markdown fences, in this exact shape:
 {
   "title": "a scroll-stopping YouTube title, under 60 characters. Avoid plain, generic ranking phrasing like 'Top 10 Richest Countries in Asia' — lead with a curiosity gap or a surprising claim that makes someone need to know the answer, e.g. in the spirit of (write NEW titles, never reuse these) 'The Country Nobody Saw Coming', 'Why This Nation Is Secretly Taking Over', 'The One Fact That Explains Everything'. Stay accurate to the real content — a stronger hook on the same facts, not clickbait that misleads.",
@@ -43,6 +45,8 @@ Each segment.text should be ONE short sentence. Aim for 6-9 segments total (do n
     : `Write a short documentary-style narration script (about 60-90 seconds spoken, roughly 150-220 words) on this topic: "${topic}".
 
 Style: authoritative, cinematic, "NEXTSCENE TV - THE FUTURE UNCOVERED" tone — the kind of voice-over used in geopolitics/future-predictions YouTube videos. Short punchy sentences. No intro pleasantries, start directly with a hook.
+
+Accuracy: only state facts, figures and rankings you're genuinely confident are well-established and broadly reported — round or approximate a number rather than invent a precise-sounding one you're not sure of. This audience is quick to call out channels in the comments for numbers that seem made up or unsourced, so a vague-but-true claim beats a specific-but-shaky one.
 
 Return ONLY valid JSON, no markdown fences, in this exact shape:
 {

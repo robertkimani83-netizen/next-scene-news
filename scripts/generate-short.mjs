@@ -45,21 +45,39 @@ const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-sh
 // isn't just cycling the same handful of wealth-superlative stories. 52
 // topics total at 3 Shorts/day means the pool now cycles roughly every 17
 // days before any topic repeats.
+// Sept 10 2026 (later same day): same reversal/curiosity-gap wave as the
+// long-form pool, added for the same reason (these angles measurably
+// outperform plain wealth-ranking topics on this channel).
 const SHORT_TOPIC_POOL = [
+  "The country that looks poor but is secretly one of the richest on Earth",
   "Why Monaco has no income tax and how its economy actually works",
+  "The country everyone hates and the real reason why",
   "Why NATO's newest members are reshaping Europe's defense map",
+  "The tiny country secretly more powerful than nations 100 times its size",
   "The country with the highest number of billionaires per capita",
+  "The country banned from something you'd never expect",
   "The country secretly stockpiling the world's rare earth minerals",
+  "Why this country looks broke but is actually loaded",
   "Why Singapore became one of the richest countries in the world",
+  "The country hiding one of the world's best-kept economic secrets",
   "Why BRICS is trying to build an alternative to the US dollar",
+  "Why everyone gets this country's wealth completely wrong",
   "The smallest country in the world with the strongest economy",
+  "The country nobody talks about that secretly controls global trade",
   "The nation quietly building military bases across three continents",
+  "Why this 'friendly' country is secretly a rival superpower",
   "Why Norway's oil fund is the largest sovereign wealth fund on Earth",
+  "The country where the official numbers don't add up",
   "Why the Arctic is becoming the world's next resource battleground",
+  "The most underestimated country in the world right now",
   "The country that prints more money than any other in the world",
+  "Why this tiny nation is secretly richer than its neighbors",
   "The country with the most spies per capita in the world",
+  "The country the world assumes is dangerous but really isn't",
   "Why Switzerland stays neutral and still gets incredibly rich",
+  "The country the world assumes is safe but really isn't",
   "Why Taiwan makes the world hold its breath every year",
+  "The surprising secret behind this country's sudden wealth",
   "The African country with the fastest growing economy right now",
   "The nation that controls the world's most important shipping chokepoint",
   "Why Dubai built one of the richest cities out of a desert",
@@ -258,6 +276,8 @@ async function main() {
     script.title,
     "",
     coveredPlaces.length ? `About: ${coveredPlaces.join(", ")}.` : "",
+    "Want the full breakdown? Check the \"Top 10 & Documentaries\" playlist on this channel.",
+    "",
     hashtags.join(" "),
   ]
     .filter(Boolean)

@@ -54,21 +54,42 @@ const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-lo
 // and resource competition instead, to stop the channel repeating the same
 // handful of angles. 75 topics total at 3 videos/week means the full pool
 // now cycles roughly every 25 weeks before anything repeats.
+// Sept 10 2026 (later same day): added a third wave leaning into
+// curiosity-gap / reversal framing ("looks poor but is secretly rich",
+// "the country everyone hates and why") — a review of the channel's own
+// view data showed these consistently outperform plain "richest/most
+// powerful" rankings by a wide margin, so they're interleaved near the
+// front of the pool to surface soon rather than appended to the end.
 const TOPIC_POOL = [
+  "Top 10 countries that look poor but are secretly loaded with wealth",
   "Top 10 countries with the most powerful militaries in the world right now",
+  "Top 10 countries everyone assumes are safe but actually aren't",
   "Top 10 members of NATO by military spending and why they matter",
+  "Top 10 countries the world quietly hates and the real reasons why",
   "Top 10 fastest growing economies in the world and why they're rising",
+  "Top 10 countries banned from things you'd never expect",
   "Top 10 countries leading the global critical minerals race",
+  "Top 10 countries that look powerful but are secretly struggling",
   "Top 10 richest countries in Africa by GDP",
+  "Top 10 countries hiding the world's best-kept economic secrets",
   "Top 10 countries most affected by global water scarcity",
+  "Top 10 countries that seem tiny but secretly control huge global power",
   "The countries most likely to become superpowers by 2050",
+  "Top 10 countries everyone gets wrong about their real wealth",
   "Top 10 countries building sovereign AI systems to control their own future",
+  "Top 10 countries the media barely covers but probably should worry you",
   "Top 10 cities in the world investing the most in future technology",
+  "Top 10 countries where the rich-poor divide will shock you",
   "Top 10 countries most exposed to the next global trade war",
+  "Top 10 countries secretly preparing for a crisis nobody's talking about",
   "Top 10 countries with the largest oil and gas reserves",
+  "Top 10 countries that seem friendly but are quietly rivals",
   "Top 10 countries racing to reduce their dependence on China's rare earths",
+  "Top 10 countries where the official numbers don't add up — and why",
   "The most powerful passports in the world and what they reveal about global power",
+  "Top 10 countries the world underestimates the most",
   "Top 10 members of the BRICS alliance and their combined global power",
+  "Top 10 countries hiding surprising secrets behind their wealth",
   "Top 10 countries leading the world in artificial intelligence development",
   "Top 10 countries competing for control of the Arctic's hidden resources",
   "Top 10 countries with the strongest currencies in the world",
@@ -332,6 +353,7 @@ async function main() {
     coveredPlaces.length ? `Covering: ${coveredPlaces.join(", ")}.` : "",
     "",
     "Subscribe for more Top 10 rankings, power comparisons, and future predictions.",
+    "Want quick daily facts instead? Check the \"NEXTSCENE Shorts\" playlist on this channel.",
     "",
     hashtags.join(" "),
   ]
