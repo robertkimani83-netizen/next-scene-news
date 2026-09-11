@@ -396,9 +396,27 @@ async function main() {
   const theme = CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)];
   console.log(`[theme] using "${theme.name}" card theme`);
 
+  // Manual override for testing/previewing a specific format on demand
+  // (set via the workflow_dispatch "format" input -> FORCE_SHORT_FORMAT env
+  // var). Unset/"auto" (including every scheduled run, which has no inputs)
+  // falls through to the normal random roll below.
+  const forcedFormat = (process.env.FORCE_SHORT_FORMAT || "auto").toLowerCase();
   const formatRand = Math.random();
-  const isGuessFormat = formatRand < GUESS_FORMAT_PROBABILITY;
-  const isMapFormat = !isGuessFormat && formatRand < GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY;
+  let isGuessFormat = formatRand < GUESS_FORMAT_PROBABILITY;
+  let isMapFormat = !isGuessFormat && formatRand < GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY;
+  if (forcedFormat === "guess") {
+    isGuessFormat = true;
+    isMapFormat = false;
+    console.log("[format] forced to Guess the Country via FORCE_SHORT_FORMAT");
+  } else if (forcedFormat === "map") {
+    isGuessFormat = false;
+    isMapFormat = true;
+    console.log("[format] forced to Map Challenge via FORCE_SHORT_FORMAT");
+  } else if (forcedFormat === "normal") {
+    isGuessFormat = false;
+    isMapFormat = false;
+    console.log("[format] forced to normal topic format via FORCE_SHORT_FORMAT");
+  }
   let topic, script;
 
   if (isGuessFormat) {
