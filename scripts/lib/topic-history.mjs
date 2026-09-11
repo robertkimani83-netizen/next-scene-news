@@ -46,15 +46,23 @@ async function writeHistory(historyPath, history) {
 export async function pickAndRecordTopic(pool, historyPath) {
   const history = await readHistory(historyPath);
 
-  let chosen = pool[0];
+  // Find the oldest last-used timestamp in the pool (never-used topics sort
+  // as -Infinity, so they always win first), then pick RANDOMLY among every
+  // topic tied for that oldest timestamp. A newly-added batch of topics is
+  // usually all tied at "never used" — picking randomly among the tie
+  // spreads a new wave out across runs instead of always landing on
+  // whichever one happens to be first in the array (the old behavior, which
+  // made array order silently double as pick priority).
   let oldest = Infinity;
   for (const topic of pool) {
     const lastUsed = history[topic] ? Date.parse(history[topic]) : -Infinity;
-    if (lastUsed < oldest) {
-      oldest = lastUsed;
-      chosen = topic;
-    }
+    if (lastUsed < oldest) oldest = lastUsed;
   }
+  const candidates = pool.filter((topic) => {
+    const lastUsed = history[topic] ? Date.parse(history[topic]) : -Infinity;
+    return lastUsed === oldest;
+  });
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
 
   history[chosen] = new Date().toISOString();
   // drop any recorded topics no longer in the pool, so editing the pool

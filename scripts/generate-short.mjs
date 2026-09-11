@@ -48,6 +48,13 @@ const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-sh
 // Sept 10 2026 (later same day): same reversal/curiosity-gap wave as the
 // long-form pool, added for the same reason (these angles measurably
 // outperform plain wealth-ranking topics on this channel).
+// Sept 11 2026: added a rivalry/conflict wave — real, ongoing standoffs,
+// border disputes and head-to-head power struggles between two named
+// countries (China vs India, Iran vs Israel, the chip war, etc.) instead of
+// a single country's stat. Tension and stakes between two named sides tends
+// to out-hook a flat "this country is rich/secretly powerful" fact, and it's
+// a genuinely different angle from every wave above rather than a reskin of
+// the same wealth/power-superlative format.
 const SHORT_TOPIC_POOL = [
   "The country that looks poor but is secretly one of the richest on Earth",
   "Why Monaco has no income tax and how its economy actually works",
@@ -116,6 +123,30 @@ const SHORT_TOPIC_POOL = [
   "The country with the world's largest sovereign gold reserve per capita",
   "Why Rwanda is called Africa's cleanest and safest country",
   "The nation betting its entire future on artificial intelligence",
+  "Why China and India can't stop fighting over this border",
+  "The islands both China and Japan refuse to give up",
+  "Why Iran and Israel are edging closer to a bigger war",
+  "The silent chip war between the US and China nobody can win outright",
+  "Why Venezuela and Guyana are fighting over an oil-rich territory",
+  "The river dam turning Egypt and Ethiopia into rivals",
+  "Why Armenia and Azerbaijan keep going back to war",
+  "The two nations racing each other to control the world's lithium",
+  "Why Turkey and Greece can't stop clashing over the same sea",
+  "The standoff over who really controls the South China Sea",
+  "Why North and South Korea are still technically at war",
+  "The two rivals secretly stockpiling weapons against each other",
+  "Why Pakistan and India still can't agree on this river",
+  "The rivalry between Saudi Arabia and Iran reshaping the Middle East",
+  "Why the Philippines and China keep clashing at sea",
+  "The flashpoint that could turn Taiwan into a global crisis overnight",
+  "Why Morocco and Algeria cut ties and what it could trigger next",
+  "The two superpowers racing to weaponize AI before the other one does",
+  "Why Serbia and Kosovo tensions keep boiling over",
+  "The Arctic standoff nobody's watching between Russia and the West",
+  "Why Poland and Russia's relationship keeps getting more dangerous",
+  "The two countries fighting over the last untapped oil reserves",
+  "Why Sudan and Egypt still can't agree on their shared border",
+  "The rivalry between two nations both racing to build the strongest military AI",
 ];
 
 // Background photo behind the intro card — same idea as the long-form
