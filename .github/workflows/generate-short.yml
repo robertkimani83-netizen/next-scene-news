@@ -9,6 +9,15 @@ on:
         description: "Actually upload to YouTube? Leave unchecked to just generate a short and review it first."
         type: boolean
         default: false
+      format:
+        description: "Force a specific Shorts format? Leave as auto to use the normal random pick."
+        type: choice
+        options:
+          - auto
+          - normal
+          - guess
+          - map
+        default: auto
 
 permissions:
   contents: write
@@ -44,6 +53,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          FORCE_SHORT_FORMAT: ${{ github.event.inputs.format }}
         run: npm run test-short-no-upload
 
       - name: Generate and upload short (scheduled runs, or manual run with "upload" checked)
@@ -56,6 +66,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          FORCE_SHORT_FORMAT: ${{ github.event.inputs.format }}
         run: npm run generate-short
 
       - name: Save topic history
