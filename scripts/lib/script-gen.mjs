@@ -189,6 +189,82 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
   throw new Error(`all Gemini models failed to write a clean guess-format script after ${MAX_PASSES} passes: ${lastErr?.message}`);
 }
 
+/** Generates a "Map Challenge" script: clues written to accompany a real map
+ * graphic that zooms progressively closer on the answer country (see
+ * lib/map-challenge.mjs), rather than "Guess the Country"'s flat mystery
+ * card. Structurally similar to generateGuessScript (same leak-safety
+ * check, same {title, clues, reveal, commentary, keywords} shape) but the
+ * framing is different: the video's hook IS the zooming map, so the title
+ * references watching the map/globe rather than pure trivia, and clues can
+ * lean on geography (terrain, neighbors, size, climate) since the visual
+ * itself is already a geography puzzle — mixing in an economy/culture fact
+ * is fine too, just never anything that would also make sense as a caption
+ * under the actual highlighted shape (e.g. never describe the country's
+ * outline/shape itself, since the map is already showing it).
+ *
+ * @param {string} country - the answer, e.g. "Mongolia" (never leaked into
+ *   the prompt's own generated title/clues — only used so Gemini knows what
+ *   to write clues about and what the reveal line must name).
+ */
+export async function generateMapClueScript(country) {
+  const prompt = `You are writing a "Map Challenge" YouTube Shorts video. A real, accurate zoomed-in world map is the main visual — it starts showing a wide region and zooms progressively closer on one highlighted (but unlabeled) country across the video, and the viewer has to name it before the final full reveal. The answer is: ${country}. Do not reveal this anywhere except the "reveal" field below.
+
+Write:
+- 3 short spoken clue sentences about ${country}, ordered from vague to specific, each one ONE sentence. Rules for the clues: NEVER state the country's name, its capital city's name, describe its flag, or describe the shape/outline of its borders (the map is already showing the shape — don't narrate it). Lean on genuinely well-known geography (region, neighboring countries or seas, terrain, climate, size comparisons) mixed with a little economy/culture/history if useful — confident, broadly-reported facts only, round or approximate rather than invent a precise-sounding number you're not sure of.
+- One short, punchy title for the challenge itself, under 60 characters, that references watching the map/globe zoom in and creates curiosity but does NOT name ${country} and does not make the answer obvious from the title alone (e.g. in the spirit of "Can You Name This Country Before The Map Zooms In?", "Guess The Country On The Map", "The Globe Is Zooming In — Do You Know Where?" — write a NEW one, never reuse these).
+- One short, punchy spoken reveal sentence that DOES explicitly name ${country}, e.g. "It's ${country}!" or a slightly more natural variant.
+- One extra sentence (spoken after the reveal) giving one more genuinely interesting fact about ${country} — not a repeat of the clues.
+
+Return ONLY valid JSON, no markdown fences, in this exact shape:
+{
+  "title": "the challenge title, never naming ${country}",
+  "clues": ["clue 1", "clue 2", "clue 3"],
+  "reveal": "the spoken reveal sentence, must name ${country}",
+  "commentary": "one extra spoken fact about ${country} after the reveal",
+  "keywords": ["6-10 short SEO keywords/phrases specific to ${country} and this challenge"]
+}`;
+
+  const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
+  const MAX_PASSES = 3;
+  let lastErr;
+  for (let pass = 1; pass <= MAX_PASSES; pass++) {
+    for (const model of models) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          }
+        );
+        if (!res.ok) throw new Error(`${model} responded ${res.status}`);
+        const data = await res.json();
+        let raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        raw = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
+        const parsed = JSON.parse(raw);
+        if (!parsed.clues?.length || !parsed.reveal) throw new Error("missing clues or reveal");
+        // Same safety net as generateGuessScript: fail loudly rather than
+        // upload a "map challenge" video whose own clue text gives away the
+        // answer the map is trying to make you guess.
+        const lowerCountry = country.toLowerCase();
+        const leaked = [parsed.title, ...parsed.clues].some((s) => s.toLowerCase().includes(lowerCountry));
+        if (leaked) throw new Error(`clue or title leaked the answer ("${country}")`);
+        return parsed;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[script] map-challenge ${model} failed (pass ${pass}/${MAX_PASSES}): ${err.message}, trying next model...`);
+      }
+    }
+    if (pass < MAX_PASSES) {
+      const delayMs = 5000 * pass;
+      console.warn(`[script] all models failed on pass ${pass}/${MAX_PASSES} — waiting ${delayMs / 1000}s before retrying the full list...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error(`all Gemini models failed to write a clean map-challenge script after ${MAX_PASSES} passes: ${lastErr?.message}`);
+}
+
 // Topic selection now lives in lib/topic-history.mjs (pickAndRecordTopic) —
 // a persistent least-recently-used picker that survives across separate
 // GitHub Actions runs, rather than the clock-hour rotation this file used

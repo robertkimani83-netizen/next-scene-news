@@ -21,7 +21,8 @@ import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
 import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
-import { generateScript, generateGuessScript } from "./lib/script-gen.mjs";
+import { generateScript, generateGuessScript, generateMapClueScript } from "./lib/script-gen.mjs";
+import { renderMapChallengeCards } from "./lib/map-challenge.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
 import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
 import { buildHashtags, buildTags } from "./lib/seo.mjs";
@@ -41,6 +42,11 @@ const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-sh
 // normal SHORT_TOPIC_POOL (e.g. as a location) never interfere with each
 // other's rotation.
 const TOPIC_HISTORY_GUESS_PATH = path.join(__dirname, "..", "state", "topic-history-short-guess.json");
+
+// Same idea, separate file again, for the "Map Challenge" series below —
+// its own answer pool/rotation, independent of both the normal topic pool
+// and the "Guess the Country" pool.
+const TOPIC_HISTORY_MAP_PATH = path.join(__dirname, "..", "state", "topic-history-short-map.json");
 
 // Punchy single-fact/single-country topics — deliberately NOT full Top-10
 // lists (those need the full ~60-90s runtime to land). Extend freely, the
@@ -291,6 +297,7 @@ const SERIES_DESCRIPTIONS = {
   "Impossible Places": "Cities, ruins and places on Earth that barely look real — NEXTSCENE TV.",
   "World in 30 Seconds": "One fast, surprising world fact at a time — NEXTSCENE TV.",
   "Guess the Country": "3 clues, one mystery country, 3-2-1 reveal — can you get it before the countdown? NEXTSCENE TV.",
+  "Map Challenge": "Watch the map zoom in on a mystery country — can you name it before the reveal? NEXTSCENE TV.",
 };
 
 // Answer pool for the "Guess the Country" series (see generateGuessScript in
@@ -329,6 +336,45 @@ const SHORT_GUESS_POOL = [
 // than replace the existing format outright.
 const GUESS_FORMAT_PROBABILITY = 0.25;
 
+// Answer pool for the "Map Challenge" series (see generateMapClueScript in
+// lib/script-gen.mjs and lib/map-challenge.mjs) — same countries as
+// SHORT_GUESS_POOL (kept as a separate list rather than a shared reference
+// so the two series' answer rotations can never accidentally interfere),
+// every one of them verified to match a country name in world-atlas's
+// countries-50m boundary dataset (map-challenge.mjs throws loudly at render
+// time if a name ever stops matching, e.g. after a dependency bump).
+const MAP_CHALLENGE_POOL = [
+  { name: "Madagascar", countryCode: "mg" },
+  { name: "Mongolia", countryCode: "mn" },
+  { name: "Bhutan", countryCode: "bt" },
+  { name: "Suriname", countryCode: "sr" },
+  { name: "Oman", countryCode: "om" },
+  { name: "Estonia", countryCode: "ee" },
+  { name: "Uruguay", countryCode: "uy" },
+  { name: "Laos", countryCode: "la" },
+  { name: "Eritrea", countryCode: "er" },
+  { name: "Brunei", countryCode: "bn" },
+  { name: "Kyrgyzstan", countryCode: "kg" },
+  { name: "Paraguay", countryCode: "py" },
+  { name: "Namibia", countryCode: "na" },
+  { name: "Bahrain", countryCode: "bh" },
+  { name: "Slovenia", countryCode: "si" },
+  { name: "Botswana", countryCode: "bw" },
+  { name: "Azerbaijan", countryCode: "az" },
+  { name: "Fiji", countryCode: "fj" },
+  { name: "Jordan", countryCode: "jo" },
+  { name: "Armenia", countryCode: "am" },
+];
+
+// A genuinely different structure again from both other formats: no mystery
+// card, no countdown — a real, accurate map graphic zooms progressively
+// closer on the (unlabeled) answer country across 3 clue segments, then a
+// full-zoom reveal. Kept a minority of uploads, same reasoning as
+// GUESS_FORMAT_PROBABILITY. The two probabilities are drawn from the same
+// roll (see isGuessFormat/isMapFormat in main()) so they never overlap —
+// GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY must stay <= 1.
+const MAP_FORMAT_PROBABILITY = 0.2;
+
 // Background photo behind the intro card — same idea as the long-form
 // pipeline's INTRO_BG_QUERY; non-fatal if nothing is found, renderTitleCard
 // falls back to a flat card automatically.
@@ -343,7 +389,16 @@ async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `short_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  const isGuessFormat = Math.random() < GUESS_FORMAT_PROBABILITY;
+  // Picked once, up front, so lib/map-challenge.mjs can use it (its
+  // highlight color rotates with the theme, same as everything else) — used
+  // again later for the title cards/badges via buildDocumentary, unchanged
+  // from before other than now being computed earlier.
+  const theme = CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)];
+  console.log(`[theme] using "${theme.name}" card theme`);
+
+  const formatRand = Math.random();
+  const isGuessFormat = formatRand < GUESS_FORMAT_PROBABILITY;
+  const isMapFormat = !isGuessFormat && formatRand < GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY;
   let topic, script;
 
   if (isGuessFormat) {
@@ -407,6 +462,61 @@ async function main() {
       });
     }
     script = { title: guess.title, keywords: guess.keywords, segments: guessSegments };
+  } else if (isMapFormat) {
+    const country = await pickAndRecordTopic(MAP_CHALLENGE_POOL.map((c) => c.name), TOPIC_HISTORY_MAP_PATH);
+    const countryInfo = MAP_CHALLENGE_POOL.find((c) => c.name === country);
+    topic = `[Map Challenge] ${country}`;
+    console.log(`[topic] ${topic}`);
+
+    console.log("[script] generating with Gemini (map-challenge form)...");
+    const mapScript = await generateMapClueScript(country);
+    console.log(`[script] title: ${mapScript.title} (${mapScript.clues.length} clues + map zoom + reveal)`);
+
+    console.log("[map] rendering zoom-stage map graphics...");
+    const mapCards = await renderMapChallengeCards(country, runDir, theme);
+
+    // Same reasoning as the guess-format branch above for keeping the
+    // reveal/commentary ordering explicit rather than relying on the shared
+    // script.commentary splice (which always inserts before the LAST
+    // segment — here that would land the extra fact between the last clue
+    // and the reveal, killing the zoom-in payoff). Clue segments carry
+    // visualKind:"map" with their own pre-rendered zoom-stage PNG; the
+    // reveal segment carries visualKind:"map-reveal" and behaves like any
+    // other countryCode segment for the flag badge.
+    const mapSegments = [
+      ...mapScript.clues.map((text, i) => ({
+        text,
+        location: "",
+        visualQuery: "",
+        visualKind: "map",
+        mapImagePath: [mapCards.stage1, mapCards.stage2, mapCards.stage3][i],
+      })),
+      {
+        text: mapScript.reveal,
+        location: country,
+        visualQuery: "",
+        visualKind: "map-reveal",
+        mapImagePath: mapCards.reveal,
+        countryCode: countryInfo.countryCode,
+        rank: null,
+      },
+    ];
+    if (mapScript.commentary) {
+      // Unlike the clue/reveal segments, the commentary line plays AFTER
+      // the reveal, so there's no spoiler risk left — reuses the normal
+      // real-footage visual path (fetchVisualForSegment) same as the guess
+      // format's own commentary segment, for a bit of visual variety
+      // instead of five map screens in a row.
+      mapSegments.push({
+        text: mapScript.commentary,
+        location: country,
+        visualQuery: `${country} global analysis`,
+        countryCode: countryInfo.countryCode,
+        rank: null,
+        isCommentary: true,
+      });
+    }
+    script = { title: mapScript.title, keywords: mapScript.keywords, segments: mapSegments };
   } else {
     topic = await pickAndRecordTopic(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH);
     console.log(`[topic] ${topic}`);
@@ -489,6 +599,24 @@ async function main() {
         bg: "0x0B0F1A",
       };
       console.log(`  segment ${i}: countdown card "${script.segments[i].countdownNumber}" (${timing.durationSec.toFixed(1)}s)`);
+    } else if (script.segments[i].visualKind === "map" || script.segments[i].visualKind === "map-reveal") {
+      // "Map Challenge" clue/reveal segment — a pre-rendered real map
+      // graphic (lib/map-challenge.mjs), wired in as a plain
+      // visual.type:"image" so it gets the exact same Ken Burns pan/zoom as
+      // any fetched photo, with zero changes needed in ffmpeg-build.mjs.
+      // The reveal segment additionally gets the normal flag/country-name
+      // badge, same as any other countryCode segment below.
+      visual = { type: "image", path: script.segments[i].mapImagePath };
+      if (script.segments[i].visualKind === "map-reveal" && script.segments[i].countryCode) {
+        const flagPath = await fetchFlag(script.segments[i].countryCode, runDir).catch(() => null);
+        if (flagPath) {
+          visual.badge = { rank: null, countryName: script.segments[i].location || "", flagPath };
+          console.log(`    + badge: flag ${script.segments[i].countryCode}`);
+        } else {
+          console.warn(`    flag fetch failed for "${script.segments[i].countryCode}" — no badge for this segment`);
+        }
+      }
+      console.log(`  segment ${i}: map-challenge ${script.segments[i].visualKind === "map-reveal" ? "reveal" : "clue"} card — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)`);
     } else {
       visual = await fetchVisualForSegment(
         { query: script.segments[i].visualQuery, location: script.segments[i].location },
@@ -517,12 +645,6 @@ async function main() {
     }
     segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }
-
-  // Rotate the accent-color theme per video (see CARD_THEMES in
-  // ffmpeg-build.mjs) so the channel doesn't look like one identical
-  // template stamped out on every upload.
-  const theme = CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)];
-  console.log(`[theme] using "${theme.name}" card theme`);
 
   const outputPath = path.join(runDir, "final_short.mp4");
   console.log("[ffmpeg] assembling synced portrait video...");
@@ -574,31 +696,41 @@ async function main() {
   // Shorts shelf instead of regular uploads.
   const title = `${script.title} #Shorts`;
   const coveredPlaces = [...new Set(script.segments.map((s) => s.location).filter(Boolean))];
-  const series = isGuessFormat ? "Guess the Country" : (SHORT_TOPIC_SERIES[topic] ?? null);
+  const series = isGuessFormat ? "Guess the Country" : isMapFormat ? "Map Challenge" : (SHORT_TOPIC_SERIES[topic] ?? null);
+  // Both "mystery" formats (trivia clues on a mystery card, or clues over a
+  // zooming map) need the same spoiler-avoidance treatment below — neither
+  // should leak the answer in the description or hashtags before anyone
+  // watches — so they share one flag even though their series names differ.
+  const isMysteryFormat = isGuessFormat || isMapFormat;
   // Hashtags render as visible chips right under the title — unlike `tags`
-  // (search metadata only, never shown to viewers), so for a guess video any
-  // keyword matching the answer itself has to be stripped before it becomes
-  // a hashtag, or the spoiler sits right at the top before anyone watches.
-  const hashtagKeywords = isGuessFormat
+  // (search metadata only, never shown to viewers), so for a mystery-format
+  // video any keyword matching the answer itself has to be stripped before
+  // it becomes a hashtag, or the spoiler sits right at the top before
+  // anyone watches.
+  const hashtagKeywords = isMysteryFormat
     ? (script.keywords || []).filter((k) => !k.toLowerCase().includes(coveredPlaces[0]?.toLowerCase() ?? "\0"))
     : script.keywords;
   const hashtags = buildHashtags(
     hashtagKeywords,
-    isGuessFormat ? ["#Shorts", "#guessthecountry", "#geoquiz"] : ["#Shorts", "#geopolitics", "#futurepredictions"]
+    isGuessFormat
+      ? ["#Shorts", "#guessthecountry", "#geoquiz"]
+      : isMapFormat
+        ? ["#Shorts", "#mapchallenge", "#geoquiz"]
+        : ["#Shorts", "#geopolitics", "#futurepredictions"]
   );
   // Tags are invisible search metadata (never shown to viewers), so the
-  // answer country is fine to include here even for a guess video — it's
-  // exactly the kind of thing someone might search after watching.
+  // answer country is fine to include here even for a mystery-format video —
+  // it's exactly the kind of thing someone might search after watching.
   const tags = buildTags(script.keywords, coveredPlaces, ["shorts", "geopolitics", "top10", "future predictions"]);
   const description = [
     script.title,
     "",
-    // The normal format's "About: <place>" line would spoil a guess video's
-    // answer right under the title before anyone watches, so it's skipped
-    // here — the reveal stays inside the video, same as the mystery-card
-    // visual treatment above.
-    !isGuessFormat && coveredPlaces.length ? `About: ${coveredPlaces.join(", ")}.` : "",
+    // The normal format's "About: <place>" line would spoil a mystery
+    // video's answer right under the title before anyone watches, so it's
+    // skipped here — the reveal stays inside the video.
+    !isMysteryFormat && coveredPlaces.length ? `About: ${coveredPlaces.join(", ")}.` : "",
     isGuessFormat ? "Did you get it before the countdown hit zero? Drop your guess before you watch!" : "",
+    isMapFormat ? "Did you name it before the map finished zooming in? Drop your guess before you watch!" : "",
     series ? `Part of our "${series}" series — see the rest in that playlist on this channel.` : "",
     "Want the full breakdown? Check the \"Top 10 & Documentaries\" playlist on this channel.",
     "",
