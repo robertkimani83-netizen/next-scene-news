@@ -110,6 +110,85 @@ Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every se
   throw new Error(`all Gemini models failed after ${MAX_PASSES} passes: ${lastErr?.message}`);
 }
 
+/** Generates a "Guess the Country" challenge script: a few cryptic clues
+ * that never name the country, a countdown, then a reveal. Used by
+ * generate-short.mjs for its recurring "Guess the Country" series — a
+ * structurally different Short (clue segments shown over a generic mystery
+ * card instead of real footage, so no stock photo can accidentally give the
+ * answer away, then a 3-2-1 countdown, then the real flag/footage reveal)
+ * rather than just a different topic on the usual single-fact format.
+ *
+ * The caller (generate-short.mjs) turns the returned {title, clues, reveal,
+ * commentary, keywords} into the same {title, segments, commentary,
+ * keywords} shape generateScript() returns, so every step downstream of
+ * script generation (TTS, captions, ffmpeg build, upload) needs no
+ * guess-format-specific handling beyond how each segment's *visual* gets
+ * built.
+ *
+ * @param {string} country - the answer, e.g. "Madagascar" (never leaked into
+ *   the prompt's OWN generated title/clues — only used so Gemini knows what
+ *   to actually write clues about and what the reveal line must name).
+ */
+export async function generateGuessScript(country) {
+  const prompt = `You are writing a "Guess the Country" YouTube Shorts challenge. The answer is: ${country}. Do not reveal this anywhere except the "reveal" field below.
+
+Write:
+- 3 short spoken clue sentences about ${country}, ordered from vague to specific, each one ONE sentence. Rules for the clues: NEVER state the country's name, its capital city's name, or describe its flag. Use only well-known, broadly accurate facts (geography, economy, culture, history) confident enough that nobody will call them out as wrong in the comments — round or approximate rather than invent a precise-sounding number you're not sure of.
+- One short, punchy title for the challenge itself, under 60 characters, that creates curiosity but does NOT name ${country} and does not make the answer obvious from the title alone (e.g. in the spirit of "Can You Guess This Mystery Nation?", "Only 1% Can Guess This Country", "3 Clues. 1 Country. Can You Get It?" — write a NEW one, never reuse these).
+- One short, punchy spoken reveal sentence that DOES explicitly name ${country}, e.g. "It's ${country}!" or a slightly more natural variant.
+- One extra sentence (spoken after the reveal) giving one more genuinely interesting fact about ${country} — not a repeat of the clues.
+
+Return ONLY valid JSON, no markdown fences, in this exact shape:
+{
+  "title": "the challenge title, never naming ${country}",
+  "clues": ["clue 1", "clue 2", "clue 3"],
+  "reveal": "the spoken reveal sentence, must name ${country}",
+  "commentary": "one extra spoken fact about ${country} after the reveal",
+  "keywords": ["6-10 short SEO keywords/phrases specific to ${country} and this challenge"]
+}`;
+
+  const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
+  const MAX_PASSES = 3;
+  let lastErr;
+  for (let pass = 1; pass <= MAX_PASSES; pass++) {
+    for (const model of models) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          }
+        );
+        if (!res.ok) throw new Error(`${model} responded ${res.status}`);
+        const data = await res.json();
+        let raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        raw = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
+        const parsed = JSON.parse(raw);
+        if (!parsed.clues?.length || !parsed.reveal) throw new Error("missing clues or reveal");
+        // Safety net: if the model slipped and named the country inside a
+        // clue or the title anyway, this run's clue-writing failed at its
+        // one job — fail loudly rather than upload a "guess" video that
+        // gives the answer away in clue 1.
+        const lowerCountry = country.toLowerCase();
+        const leaked = [parsed.title, ...parsed.clues].some((s) => s.toLowerCase().includes(lowerCountry));
+        if (leaked) throw new Error(`clue or title leaked the answer ("${country}")`);
+        return parsed;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[script] guess-format ${model} failed (pass ${pass}/${MAX_PASSES}): ${err.message}, trying next model...`);
+      }
+    }
+    if (pass < MAX_PASSES) {
+      const delayMs = 5000 * pass;
+      console.warn(`[script] all models failed on pass ${pass}/${MAX_PASSES} — waiting ${delayMs / 1000}s before retrying the full list...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error(`all Gemini models failed to write a clean guess-format script after ${MAX_PASSES} passes: ${lastErr?.message}`);
+}
+
 // Topic selection now lives in lib/topic-history.mjs (pickAndRecordTopic) —
 // a persistent least-recently-used picker that survives across separate
 // GitHub Actions runs, rather than the clock-hour rotation this file used

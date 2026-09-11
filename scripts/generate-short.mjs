@@ -21,7 +21,7 @@ import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
 import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
-import { generateScript } from "./lib/script-gen.mjs";
+import { generateScript, generateGuessScript } from "./lib/script-gen.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
 import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
 import { buildHashtags, buildTags } from "./lib/seo.mjs";
@@ -34,6 +34,13 @@ const NO_UPLOAD = process.argv.includes("--no-upload");
 // least-recently-used picker (lib/topic-history.mjs) has real memory across
 // separate Actions runs.
 const TOPIC_HISTORY_PATH = path.join(__dirname, "..", "state", "topic-history-short.json");
+
+// Separate LRU history for the "Guess the Country" series (below) — kept in
+// its own file/pool rather than sharing TOPIC_HISTORY_PATH so a country
+// used as a guess-challenge answer and the same country appearing in the
+// normal SHORT_TOPIC_POOL (e.g. as a location) never interfere with each
+// other's rotation.
+const TOPIC_HISTORY_GUESS_PATH = path.join(__dirname, "..", "state", "topic-history-short-guess.json");
 
 // Punchy single-fact/single-country topics — deliberately NOT full Top-10
 // lists (those need the full ~60-90s runtime to land). Extend freely, the
@@ -147,7 +154,180 @@ const SHORT_TOPIC_POOL = [
   "The two countries fighting over the last untapped oil reserves",
   "Why Sudan and Egypt still can't agree on their shared border",
   "The rivalry between two nations both racing to build the strongest military AI",
+  // Sept 11 2026 (later same day): a broader wave moving past countries
+  // entirely — cities, AI/future, mystery/strange-places and a few
+  // explicit hook-format experiments (What If / Did You Know / Versus /
+  // Before-vs-After) baked directly into the topic text itself, since
+  // generateScript() just writes toward whatever the topic string already
+  // frames. Paired with SHORT_TOPIC_SERIES below so these (plus the rivalry
+  // wave above) file into recognizable recurring series/playlists instead
+  // of only the single catch-all Shorts playlist.
+  "Did you know some countries have no army at all?",
+  "The smallest countries in the world you've probably never heard of",
+  "The countries that don't have a single major river running through them",
+  "The countries that could disappear within our lifetime",
+  "The countries almost no tourists ever visit",
+  "The countries that own islands thousands of miles from their own borders",
+  "The cheapest countries in the world to actually live in",
+  "The most expensive cities on Earth right now",
+  "The countries that could become the richest in the world by 2050",
+  "The countries where salaries are rising faster than anywhere else",
+  "What $100 is actually worth in different countries around the world",
+  "The countries sitting on the largest untapped natural resources on Earth",
+  "The jobs AI could wipe out within the next decade",
+  "The jobs AI probably can never replace",
+  "What the world could actually look like by 2050",
+  "The technologies that could completely change your daily life within years",
+  "What happens if AI ever becomes smarter than humans",
+  "The brand new cities being built entirely from scratch",
+  "The cities with more skyscrapers than anywhere else on Earth",
+  "The cities that are almost completely empty",
+  "The underground cities most people don't know exist",
+  "The cities that could be underwater within decades",
+  "The most futuristic cities being built right now",
+  "The places on Earth humans are not allowed to visit",
+  "The mysterious places scientists still can't fully explain",
+  "The strangest laws that actually exist around the world",
+  "Things that legally exist in only one country on Earth",
+  "The abandoned cities that look frozen in time",
+  "The places on Earth that look like another planet",
+  "Secrets hidden underneath some of the world's most famous cities",
+  "Facts about Africa most people have never heard",
+  "How artificial intelligence could transform Africa's economy",
+  "What if Africa became a single unified country?",
+  "Africa vs Europe: which continent actually has more natural resources?",
+  "USA vs China vs India: which superpower actually comes out on top?",
+  "Dubai in 1990 versus Dubai today",
 ];
+
+// Maps a subset of SHORT_TOPIC_POOL topics to a named recurring series.
+// Purely a branding/discovery layer on top of the existing single-topic
+// pipeline — the topic itself still drives the script — but a video whose
+// topic has an entry here also gets filed into that series' own YouTube
+// playlist (created on first use) and gets one extra line in its
+// description naming the series, on top of the usual catch-all "NEXTSCENE
+// Shorts" playlist every upload already joins. Not every topic needs a
+// series; an untagged topic just skips this and behaves exactly as before.
+const SHORT_TOPIC_SERIES = Object.fromEntries([
+  ...[
+    "Why China and India can't stop fighting over this border",
+    "The islands both China and Japan refuse to give up",
+    "Why Iran and Israel are edging closer to a bigger war",
+    "The silent chip war between the US and China nobody can win outright",
+    "Why Venezuela and Guyana are fighting over an oil-rich territory",
+    "The river dam turning Egypt and Ethiopia into rivals",
+    "Why Armenia and Azerbaijan keep going back to war",
+    "The two nations racing each other to control the world's lithium",
+    "Why Turkey and Greece can't stop clashing over the same sea",
+    "The standoff over who really controls the South China Sea",
+    "Why North and South Korea are still technically at war",
+    "The two rivals secretly stockpiling weapons against each other",
+    "Why Pakistan and India still can't agree on this river",
+    "The rivalry between Saudi Arabia and Iran reshaping the Middle East",
+    "Why the Philippines and China keep clashing at sea",
+    "The flashpoint that could turn Taiwan into a global crisis overnight",
+    "Why Morocco and Algeria cut ties and what it could trigger next",
+    "The two superpowers racing to weaponize AI before the other one does",
+    "Why Serbia and Kosovo tensions keep boiling over",
+    "The Arctic standoff nobody's watching between Russia and the West",
+    "Why Poland and Russia's relationship keeps getting more dangerous",
+    "The two countries fighting over the last untapped oil reserves",
+    "Why Sudan and Egypt still can't agree on their shared border",
+    "The rivalry between two nations both racing to build the strongest military AI",
+    "Africa vs Europe: which continent actually has more natural resources?",
+    "USA vs China vs India: which superpower actually comes out on top?",
+  ].map((t) => [t, "Country Battles"]),
+  ...[
+    "The jobs AI could wipe out within the next decade",
+    "The jobs AI probably can never replace",
+    "What the world could actually look like by 2050",
+    "The technologies that could completely change your daily life within years",
+    "What happens if AI ever becomes smarter than humans",
+    "The countries that could become the richest in the world by 2050",
+    "The countries that could disappear within our lifetime",
+    "The cities that could be underwater within decades",
+  ].map((t) => [t, "Future Earth"]),
+  ...[
+    "Facts about Africa most people have never heard",
+    "How artificial intelligence could transform Africa's economy",
+    "What if Africa became a single unified country?",
+    "The African country with the fastest growing economy right now",
+    "Why Rwanda is called Africa's cleanest and safest country",
+    "Why Africa is becoming the world's next geopolitical battleground",
+  ].map((t) => [t, "Africa Rising"]),
+  ...[
+    "The brand new cities being built entirely from scratch",
+    "The cities with more skyscrapers than anywhere else on Earth",
+    "The cities that are almost completely empty",
+    "The underground cities most people don't know exist",
+    "The most futuristic cities being built right now",
+    "The places on Earth humans are not allowed to visit",
+    "The mysterious places scientists still can't fully explain",
+    "The abandoned cities that look frozen in time",
+    "The places on Earth that look like another planet",
+    "Secrets hidden underneath some of the world's most famous cities",
+    "The countries almost no tourists ever visit",
+  ].map((t) => [t, "Impossible Places"]),
+  ...[
+    "Did you know some countries have no army at all?",
+    "The smallest countries in the world you've probably never heard of",
+    "The countries that don't have a single major river running through them",
+    "The countries that own islands thousands of miles from their own borders",
+    "The cheapest countries in the world to actually live in",
+    "The most expensive cities on Earth right now",
+    "The countries where salaries are rising faster than anywhere else",
+    "What $100 is actually worth in different countries around the world",
+    "The strangest laws that actually exist around the world",
+    "Things that legally exist in only one country on Earth",
+    "Dubai in 1990 versus Dubai today",
+    "The countries sitting on the largest untapped natural resources on Earth",
+  ].map((t) => [t, "World in 30 Seconds"]),
+]);
+
+const SERIES_DESCRIPTIONS = {
+  "Country Battles": "Head-to-head rivalries, standoffs and power struggles between two nations — NEXTSCENE TV.",
+  "Future Earth": "What the world, AI and the global economy could look like in the decades ahead — NEXTSCENE TV.",
+  "Africa Rising": "The economies, stories and future of Africa the headlines miss — NEXTSCENE TV.",
+  "Impossible Places": "Cities, ruins and places on Earth that barely look real — NEXTSCENE TV.",
+  "World in 30 Seconds": "One fast, surprising world fact at a time — NEXTSCENE TV.",
+  "Guess the Country": "3 clues, one mystery country, 3-2-1 reveal — can you get it before the countdown? NEXTSCENE TV.",
+};
+
+// Answer pool for the "Guess the Country" series (see generateGuessScript in
+// lib/script-gen.mjs and the segment-building branch in main() below) —
+// deliberately lesser-known-but-guessable countries spread across
+// continents, not the handful of countries every viewer names instantly
+// (USA, China, France, ...), since an unwinnable-obvious or
+// unwinnable-impossible answer is equally bad for a guessing game.
+const SHORT_GUESS_POOL = [
+  { name: "Madagascar", countryCode: "mg" },
+  { name: "Mongolia", countryCode: "mn" },
+  { name: "Bhutan", countryCode: "bt" },
+  { name: "Suriname", countryCode: "sr" },
+  { name: "Oman", countryCode: "om" },
+  { name: "Estonia", countryCode: "ee" },
+  { name: "Uruguay", countryCode: "uy" },
+  { name: "Laos", countryCode: "la" },
+  { name: "Eritrea", countryCode: "er" },
+  { name: "Brunei", countryCode: "bn" },
+  { name: "Kyrgyzstan", countryCode: "kg" },
+  { name: "Paraguay", countryCode: "py" },
+  { name: "Namibia", countryCode: "na" },
+  { name: "Bahrain", countryCode: "bh" },
+  { name: "Slovenia", countryCode: "si" },
+  { name: "Botswana", countryCode: "bw" },
+  { name: "Azerbaijan", countryCode: "az" },
+  { name: "Fiji", countryCode: "fj" },
+  { name: "Jordan", countryCode: "jo" },
+  { name: "Armenia", countryCode: "am" },
+];
+
+// Roughly 1 in 4 Shorts is a "Guess the Country" challenge instead of the
+// usual single-fact format — a genuinely different structure (clue segments
+// on a mystery card, a 3-2-1 countdown, then a flag/footage reveal), not
+// just a different topic, so it needs to stay a minority of uploads rather
+// than replace the existing format outright.
+const GUESS_FORMAT_PROBABILITY = 0.25;
 
 // Background photo behind the intro card — same idea as the long-form
 // pipeline's INTRO_BG_QUERY; non-fatal if nothing is found, renderTitleCard
@@ -163,11 +343,77 @@ async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `short_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  const topic = await pickAndRecordTopic(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH);
-  console.log(`[topic] ${topic}`);
+  const isGuessFormat = Math.random() < GUESS_FORMAT_PROBABILITY;
+  let topic, script;
 
-  console.log("[script] generating with Gemini (short form)...");
-  const script = await generateScript(topic, { short: true });
+  if (isGuessFormat) {
+    const country = await pickAndRecordTopic(SHORT_GUESS_POOL.map((c) => c.name), TOPIC_HISTORY_GUESS_PATH);
+    const countryInfo = SHORT_GUESS_POOL.find((c) => c.name === country);
+    topic = `[Guess the Country] ${country}`;
+    console.log(`[topic] ${topic}`);
+
+    console.log("[script] generating with Gemini (guess-the-country form)...");
+    const guess = await generateGuessScript(country);
+    console.log(`[script] title: ${guess.title} (${guess.clues.length} clues + countdown + reveal)`);
+
+    // Turn the guess-script shape into the same {title, segments, keywords}
+    // shape generateScript() returns, so everything downstream (intro
+    // unshift, TTS, captions, ffmpeg build, upload, playlists) needs no
+    // guess-format-specific handling beyond how each segment's *visual*
+    // gets built (see visualKind below). Clue segments carry
+    // visualKind:"mystery" (a generic branded card — deliberately NOT real
+    // footage, which could accidentally give the answer away); the
+    // countdown segments carry visualKind:"countdown"; the reveal segment
+    // is a normal location/countryCode segment and reuses the existing
+    // real-footage + flag-badge path untouched.
+    //
+    // Deliberately NOT using the shared script.commentary field here: the
+    // shared splice below always inserts commentary right before the LAST
+    // segment, which for every other format is a generic closing line but
+    // here would be the reveal itself — that would shove the extra fact
+    // between the countdown and the reveal (killing the 3-2-1 payoff) and,
+    // worse, risks the commentary naming the country before the reveal
+    // segment ever fires. So the commentary segment (if any) is appended
+    // AFTER the reveal instead, built directly into the segments array, and
+    // script.commentary is left unset so the shared splice below is a no-op
+    // for this run.
+    const guessSegments = [
+      ...guess.clues.map((text, i) => ({
+        text,
+        location: "",
+        visualQuery: "",
+        visualKind: "mystery",
+        clueNumber: i + 1,
+      })),
+      { text: "Three.", location: "", visualQuery: "", visualKind: "countdown", countdownNumber: 3 },
+      { text: "Two.", location: "", visualQuery: "", visualKind: "countdown", countdownNumber: 2 },
+      { text: "One.", location: "", visualQuery: "", visualKind: "countdown", countdownNumber: 1 },
+      {
+        text: guess.reveal,
+        location: country,
+        visualQuery: `${country} landscape aerial`,
+        countryCode: countryInfo.countryCode,
+        rank: null,
+      },
+    ];
+    if (guess.commentary) {
+      guessSegments.push({
+        text: guess.commentary,
+        location: country,
+        visualQuery: `${country} global analysis`,
+        countryCode: countryInfo.countryCode,
+        rank: null,
+        isCommentary: true,
+      });
+    }
+    script = { title: guess.title, keywords: guess.keywords, segments: guessSegments };
+  } else {
+    topic = await pickAndRecordTopic(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH);
+    console.log(`[topic] ${topic}`);
+
+    console.log("[script] generating with Gemini (short form)...");
+    script = await generateScript(topic, { short: true });
+  }
   console.log(`[script] title: ${script.title} (${script.segments.length} segments)`);
 
   // Intro is ONE spoken segment (just the title) — unlike the long-form
@@ -216,6 +462,33 @@ async function main() {
       visual = { type: "title-card", lines: introCardLines, fontsize: 58, bgVisual };
       introDurationSec += timing.durationSec;
       console.log(`  segment ${i}: intro card — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)${bgVisual ? "" : " [no bg photo found, using flat card]"}`);
+    } else if (script.segments[i].visualKind === "mystery") {
+      // "Guess the Country" clue segment — deliberately a plain branded card,
+      // NOT a real stock photo/clip. Real footage matched to the clue text
+      // risks accidentally showing something recognizable as the answer
+      // (e.g. a clue about a specific mountain range pulling back an actual
+      // photo of it) before the reveal segment is supposed to. bg is a flat
+      // dark navy (no bgVisual passed) so renderTitleCard falls back to a
+      // solid color card automatically — no photo fetch at all for this
+      // segment, so nothing to accidentally give the game away with.
+      visual = {
+        type: "title-card",
+        lines: [`CLUE ${script.segments[i].clueNumber}`, "GUESS THE COUNTRY"],
+        fontsize: 64,
+        subFontsize: 30,
+        bg: "0x0B0F1A",
+      };
+      console.log(`  segment ${i}: mystery clue card (clue ${script.segments[i].clueNumber}) — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)`);
+    } else if (script.segments[i].visualKind === "countdown") {
+      // Big centered number, no sub-line — same title-card renderer, just a
+      // huge digit standing in for "lines[0]".
+      visual = {
+        type: "title-card",
+        lines: [String(script.segments[i].countdownNumber)],
+        fontsize: 220,
+        bg: "0x0B0F1A",
+      };
+      console.log(`  segment ${i}: countdown card "${script.segments[i].countdownNumber}" (${timing.durationSec.toFixed(1)}s)`);
     } else {
       visual = await fetchVisualForSegment(
         { query: script.segments[i].visualQuery, location: script.segments[i].location },
@@ -301,12 +574,32 @@ async function main() {
   // Shorts shelf instead of regular uploads.
   const title = `${script.title} #Shorts`;
   const coveredPlaces = [...new Set(script.segments.map((s) => s.location).filter(Boolean))];
-  const hashtags = buildHashtags(script.keywords, ["#Shorts", "#geopolitics", "#futurepredictions"]);
+  const series = isGuessFormat ? "Guess the Country" : (SHORT_TOPIC_SERIES[topic] ?? null);
+  // Hashtags render as visible chips right under the title — unlike `tags`
+  // (search metadata only, never shown to viewers), so for a guess video any
+  // keyword matching the answer itself has to be stripped before it becomes
+  // a hashtag, or the spoiler sits right at the top before anyone watches.
+  const hashtagKeywords = isGuessFormat
+    ? (script.keywords || []).filter((k) => !k.toLowerCase().includes(coveredPlaces[0]?.toLowerCase() ?? "\0"))
+    : script.keywords;
+  const hashtags = buildHashtags(
+    hashtagKeywords,
+    isGuessFormat ? ["#Shorts", "#guessthecountry", "#geoquiz"] : ["#Shorts", "#geopolitics", "#futurepredictions"]
+  );
+  // Tags are invisible search metadata (never shown to viewers), so the
+  // answer country is fine to include here even for a guess video — it's
+  // exactly the kind of thing someone might search after watching.
   const tags = buildTags(script.keywords, coveredPlaces, ["shorts", "geopolitics", "top10", "future predictions"]);
   const description = [
     script.title,
     "",
-    coveredPlaces.length ? `About: ${coveredPlaces.join(", ")}.` : "",
+    // The normal format's "About: <place>" line would spoil a guess video's
+    // answer right under the title before anyone watches, so it's skipped
+    // here — the reveal stays inside the video, same as the mystery-card
+    // visual treatment above.
+    !isGuessFormat && coveredPlaces.length ? `About: ${coveredPlaces.join(", ")}.` : "",
+    isGuessFormat ? "Did you get it before the countdown hit zero? Drop your guess before you watch!" : "",
+    series ? `Part of our "${series}" series — see the rest in that playlist on this channel.` : "",
     "Want the full breakdown? Check the \"Top 10 & Documentaries\" playlist on this channel.",
     "",
     hashtags.join(" "),
@@ -331,6 +624,20 @@ async function main() {
     console.log(`[playlist] added to "${PLAYLIST_TITLE}"`);
   } catch (err) {
     console.warn(`[playlist] failed (video still uploaded fine): ${err.message}`);
+  }
+
+  // Also file into this topic's named series playlist, if it has one (see
+  // SHORT_TOPIC_SERIES above) — created on first use, same as the catch-all
+  // playlist. Purely a discovery/branding extra, so failure here is never
+  // fatal to an otherwise-successful upload.
+  if (series) {
+    try {
+      const seriesPlaylistId = await getOrCreatePlaylist(series, SERIES_DESCRIPTIONS[series] ?? `${series} — NEXTSCENE TV.`);
+      await addVideoToPlaylist(seriesPlaylistId, uploaded.id);
+      console.log(`[playlist] added to "${series}"`);
+    } catch (err) {
+      console.warn(`[playlist] failed to add to series "${series}" (video still uploaded fine): ${err.message}`);
+    }
   }
 }
 
