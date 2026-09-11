@@ -73,6 +73,12 @@ jobs:
           if [ -f state/topic-history-short-guess.json ]; then
             git add state/topic-history-short-guess.json
           fi
+          # Same idea for the "Map Challenge" series' own history file (see
+          # MAP_CHALLENGE_POOL in generate-short.mjs) — only exists once a
+          # map-format run has happened at least once (~1-in-5 runs).
+          if [ -f state/topic-history-short-map.json ]; then
+            git add state/topic-history-short-map.json
+          fi
           if ! git diff --cached --quiet; then
             git commit -m "Update Shorts topic history [skip ci]"
             git pull --rebase origin main
