@@ -11,9 +11,12 @@
 //
 // Required environment variables:
 //   GEMINI_API_KEY
-//   PEXELS_API_KEY            (UNSPLASH_API_KEY optional fallback)
-//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
-//   HF_TOKEN                  (for FLUX thumbnail generation)
+//   PEXELS_API_KEY
+//   UNSPLASH_API_KEY            (optional fallback)
+//   GOOGLE_CLIENT_ID
+//   GOOGLE_CLIENT_SECRET
+//   YOUTUBE_REFRESH_TOKEN
+//   HF_TOKEN                    (for FLUX thumbnail generation)
 //
 // Run locally to test without uploading:
 //   node scripts/generate-documentary.mjs --no-upload
@@ -44,6 +47,7 @@ import { buildHashtags, buildTags } from "./lib/seo.mjs";
 const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const NO_UPLOAD = process.argv.includes("--no-upload");
 
 const TOPIC_HISTORY_PATH = path.join(
@@ -142,7 +146,7 @@ const TOPIC_POOL = [
   "Top 10 countries with the biggest stake in the Middle East's new balance of power",
   "Top 10 countries investing the most in space exploration",
   "Top 10 countries most dependent on a single foreign power for survival",
-  "The nations racing to build the world's first commercial fusion reactors",
+  "The nations racing to build the first commercial fusion reactors",
   "Top 10 countries investing the most in underwater cable and data infrastructure security",
   "Top 10 countries with the most powerful economic sanctions leverage",
   "Top 10 countries with the most contested maritime borders in the world",
@@ -156,7 +160,8 @@ const TOPIC_POOL = [
 const SUBSCRIBE_LINE =
   "If you're finding this useful, hit subscribe — it really helps this channel grow.";
 
-const SUBSCRIBE_VISUAL_QUERY = "smartphone social media scrolling";
+const SUBSCRIBE_VISUAL_QUERY =
+  "smartphone social media scrolling";
 
 const INTRO_WELCOME_LINE =
   "Welcome to NextScene TV — the future uncovered.";
@@ -169,16 +174,23 @@ const OUTRO_CARD_LINES = [
   "NEXTSCENE TV — THE FUTURE UNCOVERED",
 ];
 
-const INTRO_BG_QUERY = "futuristic city skyline night aerial";
-const OUTRO_BG_QUERY = "city skyline night lights aerial";
+const INTRO_BG_QUERY =
+  "futuristic city skyline night aerial";
 
-const PLAYLIST_TITLE = "Top 10 & Documentaries — NEXTSCENE TV";
+const OUTRO_BG_QUERY =
+  "city skyline night lights aerial";
+
+const PLAYLIST_TITLE =
+  "Top 10 & Documentaries — NEXTSCENE TV";
 
 const PLAYLIST_DESCRIPTION =
   "Full-length Top 10 rankings, power comparisons, and future-prediction documentaries from NEXTSCENE TV — the future uncovered.";
 
-/**
- * Generate exactly one custom thumbnail using:
+
+/*
+ * Generate exactly ONE custom thumbnail.
+ *
+ * Python compositor:
  * Gemini -> FLUX.1-schnell -> Pillow
  */
 async function generateCustomThumbnail(title, runDir) {
@@ -186,9 +198,15 @@ async function generateCustomThumbnail(title, runDir) {
     "[thumbnail] generating new Gemini + FLUX + Pillow thumbnail..."
   );
 
-  const outputDir = path.join(runDir, "thumbnail-output");
+  const outputDir = path.join(
+    runDir,
+    "thumbnail-output"
+  );
 
-  await fs.mkdir(outputDir, { recursive: true });
+  await fs.mkdir(
+    outputDir,
+    { recursive: true }
+  );
 
   try {
     await execFileAsync(
@@ -219,7 +237,9 @@ async function generateCustomThumbnail(title, runDir) {
       "thumbnail.jpg"
     );
 
-    await fs.access(generatedPath);
+    await fs.access(
+      generatedPath
+    );
 
     await fs.copyFile(
       generatedPath,
@@ -227,55 +247,78 @@ async function generateCustomThumbnail(title, runDir) {
     );
 
     console.log(
-      `[thumbnail] ready: ${finalThumbnailPath}`
+      "[thumbnail] ready: " +
+        finalThumbnailPath
     );
 
     return finalThumbnailPath;
   } catch (err) {
     console.warn(
-      `[thumbnail] new compositor failed: ${err.message}`
+      "[thumbnail] new compositor failed: " +
+        err.message
     );
 
     return null;
   }
 }
 
+
 async function main() {
   const runDir = path.join(
     __dirname,
     "..",
     "tmp",
-    `run_${Date.now()}`
+    "run_" + Date.now()
   );
 
-  await fs.mkdir(runDir, { recursive: true });
-
-  const topic = await pickAndRecordTopic(
-    TOPIC_POOL,
-    TOPIC_HISTORY_PATH
+  await fs.mkdir(
+    runDir,
+    { recursive: true }
   );
 
-  console.log(`[topic] ${topic}`);
-
-  console.log("[script] generating with Gemini...");
-
-  const script = await generateScript(topic);
+  const topic =
+    await pickAndRecordTopic(
+      TOPIC_POOL,
+      TOPIC_HISTORY_PATH
+    );
 
   console.log(
-    `[script] title: ${script.title} (${script.segments.length} segments)`
+    "[topic] " + topic
+  );
+
+  console.log(
+    "[script] generating with Gemini..."
+  );
+
+  const script =
+    await generateScript(topic);
+
+  console.log(
+    "[script] title: " +
+      script.title +
+      " (" +
+      script.segments.length +
+      " segments)"
   );
 
   const midIndex = Math.max(
     1,
-    Math.floor(script.segments.length / 2)
+    Math.floor(
+      script.segments.length / 2
+    )
   );
 
-  script.segments.splice(midIndex, 0, {
-    text: SUBSCRIBE_LINE,
-    location: "",
-    visualQuery: SUBSCRIBE_VISUAL_QUERY,
-    isSubscribeCTA: true,
-  });
+  script.segments.splice(
+    midIndex,
+    0,
+    {
+      text: SUBSCRIBE_LINE,
+      location: "",
+      visualQuery:
+        SUBSCRIBE_VISUAL_QUERY,
+      isSubscribeCTA: true,
+    }
+  );
 
   const introCardLines = [
     script.title.toUpperCase(),
@@ -284,13 +327,15 @@ async function main() {
 
   script.segments.unshift(
     {
-      text: `${script.title}.`,
+      text:
+        script.title + ".",
       location: "",
       visualQuery: "",
       isIntro: true,
     },
     {
-      text: INTRO_WELCOME_LINE,
+      text:
+        INTRO_WELCOME_LINE,
       location: "",
       visualQuery: "",
       isIntro: true,
@@ -298,14 +343,18 @@ async function main() {
   );
 
   if (script.commentary) {
-    const commentaryQuery = script.keywords?.length
-      ? `${script.keywords[0]} global analysis`
-      : "world map global analysis data";
+    const commentaryQuery =
+      script.keywords &&
+      script.keywords.length
+        ? script.keywords[0] +
+          " global analysis"
+        : "world map global analysis data";
 
     script.segments.push({
       text: script.commentary,
       location: "",
-      visualQuery: commentaryQuery,
+      visualQuery:
+        commentaryQuery,
       isCommentary: true,
     });
   }
@@ -317,25 +366,40 @@ async function main() {
     isOutro: true,
   });
 
-  const fullNarration = script.segments
-    .map((s) => s.text)
-    .join(" ");
+  const fullNarration =
+    script.segments
+      .map((s) => s.text)
+      .join(" ");
 
   console.log(
     "[tts] synthesizing narration (en-KE-AsiliaNeural, Kenyan English, female)..."
   );
 
-  const { audioPath, sentences } =
+  const narration =
     await synthesizeNarration(
       fullNarration,
       runDir,
       "en-KE-AsiliaNeural"
     );
 
-  if (sentences.length !== script.segments.length) {
+  const audioPath =
+    narration.audioPath;
+
+  const sentences =
+    narration.sentences;
+
+  if (
+    sentences.length !==
+    script.segments.length
+  ) {
     console.warn(
-      `[tts] warning: got ${sentences.length} sentence boundaries but ${script.segments.length} script segments — ` +
-        `TTS sentence splitting doesn't always match 1:1. Falling back to even time distribution.`
+      "[tts] warning: got " +
+        sentences.length +
+        " sentence boundaries but " +
+        script.segments.length +
+        " script segments — " +
+        "TTS sentence splitting doesn't always match 1:1. " +
+        "Falling back to even time distribution."
     );
   }
 
@@ -348,136 +412,243 @@ async function main() {
   let introBgVisual;
   let introDurationSec = 0;
 
-  for (let i = 0; i < script.segments.length; i++) {
-    const timing = sentences[i] ?? {
-      durationSec:
-        (sentences.at(-1)?.startSec +
-          sentences.at(-1)?.durationSec ||
-          60) /
-        script.segments.length,
-    };
+  for (
+    let i = 0;
+    i < script.segments.length;
+    i++
+  ) {
+    const lastSentence =
+      sentences.length > 0
+        ? sentences[sentences.length - 1]
+        : null;
+
+    const timing =
+      sentences[i] || {
+        durationSec:
+          (
+            (lastSentence?.startSec || 0) +
+            (lastSentence?.durationSec || 60)
+          ) /
+          script.segments.length,
+      };
 
     let visual;
 
-    if (script.segments[i].isIntro) {
-      if (introBgVisual === undefined) {
-        introBgVisual = await fetchVisualForSegment(
-          { query: INTRO_BG_QUERY },
-          runDir,
-          i
-        ).catch(() => null);
+    if (
+      script.segments[i].isIntro
+    ) {
+      if (
+        introBgVisual ===
+        undefined
+      ) {
+        introBgVisual =
+          await fetchVisualForSegment(
+            {
+              query:
+                INTRO_BG_QUERY,
+            },
+            runDir,
+            i
+          ).catch(
+            () => null
+          );
       }
 
       visual = {
         type: "title-card",
         lines: introCardLines,
         fontsize: 58,
-        bgVisual: introBgVisual,
+        bgVisual:
+          introBgVisual,
       };
 
-      introDurationSec += timing.durationSec;
+      introDurationSec +=
+        timing.durationSec;
 
       console.log(
-        `  segment ${i}: intro card — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)` +
-          `${introBgVisual ? "" : " [no bg photo found, using flat card]"}`
+        "  segment " +
+          i +
+          ": intro card — \"" +
+          script.segments[i]
+            .text +
+          "\" (" +
+          timing.durationSec.toFixed(
+            1
+          ) +
+          "s)" +
+          (
+            introBgVisual
+              ? ""
+              : " [no bg photo found, using flat card]"
+          )
       );
-    } else if (script.segments[i].isOutro) {
-      const bgVisual = await fetchVisualForSegment(
-        { query: OUTRO_BG_QUERY },
-        runDir,
-        i
-      ).catch(() => null);
+    } else if (
+      script.segments[i].isOutro
+    ) {
+      const bgVisual =
+        await fetchVisualForSegment(
+          {
+            query:
+              OUTRO_BG_QUERY,
+          },
+          runDir,
+          i
+        ).catch(
+          () => null
+        );
 
       visual = {
         type: "title-card",
-        lines: OUTRO_CARD_LINES,
+        lines:
+          OUTRO_CARD_LINES,
         bgVisual,
       };
 
       console.log(
-        `  segment ${i}: outro card (${timing.durationSec.toFixed(1)}s)` +
-          `${bgVisual ? "" : " [no bg photo found, using flat card]"}`
+        "  segment " +
+          i +
+          ": outro card (" +
+          timing.durationSec.toFixed(
+            1
+          ) +
+          "s)" +
+          (
+            bgVisual
+              ? ""
+              : " [no bg photo found, using flat card]"
+          )
       );
     } else {
-      visual = await fetchVisualForSegment(
-        {
-          query: script.segments[i].visualQuery,
-          location: script.segments[i].location,
-        },
-        runDir,
-        i
-      ).catch((err) => {
-        console.warn(
-          `[visuals] segment ${i} ("${script.segments[i].visualQuery}") failed: ${err.message}`
+      visual =
+        await fetchVisualForSegment(
+          {
+            query:
+              script.segments[i]
+                .visualQuery,
+            location:
+              script.segments[i]
+                .location,
+          },
+          runDir,
+          i
+        ).catch(
+          (err) => {
+            console.warn(
+              "[visuals] segment " +
+                i +
+                " (\"" +
+                script.segments[i]
+                  .visualQuery +
+                "\") failed: " +
+                err.message
+            );
+
+            return null;
+          }
         );
 
-        return null;
-      });
-
-      const matchedTerm = visual?.matchedTerm
-        ? ` matched "${visual.matchedTerm}"`
-        : "";
+      const matched =
+        visual?.matchedTerm
+          ? " matched \"" +
+            visual.matchedTerm +
+            "\""
+          : "";
 
       console.log(
-        `  segment ${i}: ${
-          visual ? visual.type : "NO VISUAL FOUND"
-        }${matchedTerm} — wanted "${
-          script.segments[i].visualQuery
-        }" (${timing.durationSec.toFixed(1)}s)`
+        "  segment " +
+          i +
+          ": " +
+          (
+            visual
+              ? visual.type
+              : "NO VISUAL FOUND"
+          ) +
+          matched +
+          " — wanted \"" +
+          script.segments[i]
+            .visualQuery +
+          "\" (" +
+          timing.durationSec.toFixed(
+            1
+          ) +
+          "s)"
       );
 
       if (
         visual &&
-        script.segments[i].countryCode
+        script.segments[i]
+          .countryCode
       ) {
-        const flagPath = await fetchFlag(
-          script.segments[i].countryCode,
-          runDir
-        ).catch(() => null);
+        const flagPath =
+          await fetchFlag(
+            script.segments[i]
+              .countryCode,
+            runDir
+          ).catch(
+            () => null
+          );
 
         if (flagPath) {
           visual.badge = {
-            rank: script.segments[i].rank ?? null,
+            rank:
+              script.segments[i]
+                .rank ?? null,
             countryName:
-              script.segments[i].location || "",
+              script.segments[i]
+                .location || "",
             flagPath,
           };
 
           console.log(
-            `    + badge: rank ${
-              visual.badge.rank ?? "—"
-            }, flag ${script.segments[i].countryCode}`
+            "    + badge: rank " +
+              (
+                visual.badge.rank ??
+                "—"
+              ) +
+              ", flag " +
+              script.segments[i]
+                .countryCode
           );
         } else {
           console.warn(
-            `    flag fetch failed for "${script.segments[i].countryCode}" — no badge for this segment`
+            "    flag fetch failed for \"" +
+              script.segments[i]
+                .countryCode +
+              "\" — no badge for this segment"
           );
         }
       }
     }
 
     segmentsForBuild.push({
-      visual,
-      durationSec: timing.durationSec,
-      text: script.segments[i].text,
+      visual: visual,
+      durationSec:
+        timing.durationSec,
+      text:
+        script.segments[i]
+          .text,
     });
   }
 
   const theme =
     CARD_THEMES[
       Math.floor(
-        Math.random() * CARD_THEMES.length
+        Math.random() *
+          CARD_THEMES.length
       )
     ];
 
   console.log(
-    `[theme] using "${theme.name}" card theme`
+    "[theme] using \"" +
+      theme.name +
+      "\" card theme"
   );
 
-  const outputPath = path.join(
-    runDir,
-    "final.mp4"
-  );
+  const outputPath =
+    path.join(
+      runDir,
+      "final.mp4"
+    );
 
   console.log(
     "[ffmpeg] assembling synced video (with voiced intro/outro)..."
@@ -486,23 +657,38 @@ async function main() {
   await buildDocumentary(
     segmentsForBuild,
     audioPath,
-    path.join(runDir, "work"),
+    path.join(
+      runDir,
+      "work"
+    ),
     outputPath,
     null,
-    { theme }
+    {
+      theme: theme,
+    }
   );
 
   console.log(
-    `[done] video ready: ${outputPath}`
+    "[done] video ready: " +
+      outputPath
   );
 
-  // Generate exactly ONE thumbnail using the new compositor.
-  // If it fails, keep the existing frame-extraction fallback.
 
-  const thumbnailPath = path.join(
-    runDir,
-    "thumbnail.jpg"
-  );
+  // ------------------------------------------------------------
+  // THUMBNAIL
+  // ------------------------------------------------------------
+
+  // Generate exactly ONE thumbnail using:
+  // Gemini + FLUX.1-schnell + Pillow.
+  //
+  // If the new compositor fails, extract a frame from the video
+  // as a fallback so the YouTube upload can still have a thumbnail.
+
+  const thumbnailPath =
+    path.join(
+      runDir,
+      "thumbnail.jpg"
+    );
 
   let thumbnailReady = false;
 
@@ -525,13 +711,15 @@ async function main() {
     );
   } else {
     try {
-      const atSec = Math.max(
-        0.3,
-        Math.min(
-          1.5,
-          introDurationSec * 0.5
-        )
-      );
+      const atSec =
+        Math.max(
+          0.3,
+          Math.min(
+            1.5,
+            introDurationSec *
+              0.5
+          )
+        );
 
       await extractThumbnail(
         outputPath,
@@ -542,16 +730,23 @@ async function main() {
       thumbnailReady = true;
 
       console.log(
-        `[thumbnail] extracted frame at ${atSec.toFixed(
-          2
-        )}s (AI thumbnail unavailable)`
+        "[thumbnail] extracted frame at " +
+          atSec.toFixed(2) +
+          "s (AI thumbnail unavailable)"
       );
     } catch (err) {
       console.warn(
-        `[thumbnail] extraction failed too (upload will keep YouTube's auto-picked frame): ${err.message}`
+        "[thumbnail] extraction failed too " +
+          "(upload will keep YouTube's auto-picked frame): " +
+          err.message
       );
     }
   }
+
+
+  // ------------------------------------------------------------
+  // UPLOAD
+  // ------------------------------------------------------------
 
   if (NO_UPLOAD) {
     console.log(
@@ -568,19 +763,22 @@ async function main() {
   const coveredPlaces = [
     ...new Set(
       script.segments
-        .map((s) => s.location)
+        .map(
+          (s) => s.location
+        )
         .filter(Boolean)
     ),
   ];
 
-  const hashtags = buildHashtags(
-    script.keywords,
-    [
-      "#geopolitics",
-      "#top10",
-      "#futurepredictions",
-    ]
-  );
+  const hashtags =
+    buildHashtags(
+      script.keywords,
+      [
+        "#geopolitics",
+        "#top10",
+        "#futurepredictions",
+      ]
+    );
 
   const tags = buildTags(
     script.keywords,
@@ -599,30 +797,39 @@ async function main() {
     script.commentary ||
       "Auto-narrated documentary breakdown for NEXTSCENE TV — the future uncovered.",
     coveredPlaces.length
-      ? `Covering: ${coveredPlaces.join(", ")}.`
+      ? "Covering: " +
+        coveredPlaces.join(", ") +
+        "."
       : "",
     "",
     "Subscribe for more Top 10 rankings, power comparisons, and future predictions.",
-    'Want quick daily facts instead? Check the "NEXTSCENE Shorts" playlist on this channel.',
+    "Want quick daily facts instead? Check the \"NEXTSCENE Shorts\" playlist on this channel.",
     "",
     hashtags.join(" "),
   ]
     .filter(Boolean)
     .join("\n");
 
-  const uploaded = await uploadToYouTube(
-    outputPath,
-    script.title,
-    description,
-    { tags }
-  );
+  const uploaded =
+    await uploadToYouTube(
+      outputPath,
+      script.title,
+      description,
+      { tags: tags }
+    );
 
   console.log(
-    `[upload] done: https://youtube.com/watch?v=${uploaded.id}`
+    "[upload] done: https://youtube.com/watch?v=" +
+      uploaded.id
   );
 
-  // Existing YouTube thumbnail upload.
-  // The new Gemini + FLUX + Pillow thumbnail is sent here.
+
+  // ------------------------------------------------------------
+  // YOUTUBE THUMBNAIL
+  // ------------------------------------------------------------
+
+  // This is the existing YouTube thumbnail upload.
+  // It now receives the new Gemini + FLUX + Pillow thumbnail.
 
   if (thumbnailReady) {
     try {
@@ -636,10 +843,17 @@ async function main() {
       );
     } catch (err) {
       console.warn(
-        `[thumbnail] upload failed (video still uploaded fine, keeping YouTube's auto-picked frame): ${err.message}`
+        "[thumbnail] upload failed " +
+          "(video still uploaded fine, keeping YouTube's auto-picked frame): " +
+          err.message
       );
     }
   }
+
+
+  // ------------------------------------------------------------
+  // PLAYLIST
+  // ------------------------------------------------------------
 
   try {
     const playlistId =
@@ -654,18 +868,28 @@ async function main() {
     );
 
     console.log(
-      `[playlist] added to "${PLAYLIST_TITLE}"`
+      "[playlist] added to \"" +
+        PLAYLIST_TITLE +
+        "\""
     );
   } catch (err) {
     console.warn(
-      `[playlist] failed (video still uploaded fine): ${err.message}`
+      "[playlist] failed " +
+        "(video still uploaded fine): " +
+        err.message
     );
   }
 }
 
-main().catch((err) => {
-  console.error("[fatal]", err);
 
-  process.exit(1);
-});
+main().catch(
+  (err) => {
+    console.error(
+      "[fatal]",
+      err
+    );
+
+    process.exit(1);
+  }
+);
 ```
