@@ -186,7 +186,6 @@ const PLAYLIST_TITLE =
 const PLAYLIST_DESCRIPTION =
   "Full-length Top 10 rankings, power comparisons, and future-prediction documentaries from NEXTSCENE TV — the future uncovered.";
 
-
 /*
  * Generate exactly ONE custom thumbnail.
  *
@@ -261,7 +260,6 @@ async function generateCustomThumbnail(title, runDir) {
     return null;
   }
 }
-
 
 async function main() {
   const runDir = path.join(
@@ -673,7 +671,6 @@ async function main() {
       outputPath
   );
 
-
   // ------------------------------------------------------------
   // THUMBNAIL
   // ------------------------------------------------------------
@@ -699,11 +696,6 @@ async function main() {
     );
 
   if (generatedThumbnail) {
-    await fs.copyFile(
-      generatedThumbnail,
-      thumbnailPath
-    );
-
     thumbnailReady = true;
 
     console.log(
@@ -742,7 +734,6 @@ async function main() {
       );
     }
   }
-
 
   // ------------------------------------------------------------
   // UPLOAD
@@ -823,7 +814,6 @@ async function main() {
       uploaded.id
   );
 
-
   // ------------------------------------------------------------
   // YOUTUBE THUMBNAIL
   // ------------------------------------------------------------
@@ -849,7 +839,6 @@ async function main() {
       );
     }
   }
-
 
   // ------------------------------------------------------------
   // PLAYLIST
@@ -881,7 +870,6 @@ async function main() {
   }
 }
 
-
 main().catch(
   (err) => {
     console.error(
@@ -892,4 +880,3 @@ main().catch(
     process.exit(1);
   }
 );
-```
