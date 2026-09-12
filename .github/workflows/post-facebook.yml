@@ -21,4 +21,5 @@ jobs:
         env:
           SITE_URL: ${{ secrets.SITE_URL }}
           MAKE_WEBHOOK_URL: ${{ secrets.MAKE_WEBHOOK_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: node scripts/post-facebook.mjs
