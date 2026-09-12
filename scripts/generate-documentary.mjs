@@ -26,7 +26,11 @@ import { promisify } from "node:util";
 
 import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
-import { buildDocumentary, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
+import {
+  buildDocumentary,
+  CARD_THEMES,
+  extractThumbnail,
+} from "./lib/ffmpeg-build.mjs";
 import { generateScript } from "./lib/script-gen.mjs";
 import { pickAndRecordTopic } from "./lib/topic-history.mjs";
 import {
@@ -138,7 +142,7 @@ const TOPIC_POOL = [
   "Top 10 countries with the biggest stake in the Middle East's new balance of power",
   "Top 10 countries investing the most in space exploration",
   "Top 10 countries most dependent on a single foreign power for survival",
-  "The nations racing to build the first commercial fusion reactors",
+  "The nations racing to build the world's first commercial fusion reactors",
   "Top 10 countries investing the most in underwater cable and data infrastructure security",
   "Top 10 countries with the most powerful economic sanctions leverage",
   "Top 10 countries with the most contested maritime borders in the world",
@@ -151,12 +155,15 @@ const TOPIC_POOL = [
 
 const SUBSCRIBE_LINE =
   "If you're finding this useful, hit subscribe — it really helps this channel grow.";
+
 const SUBSCRIBE_VISUAL_QUERY = "smartphone social media scrolling";
 
 const INTRO_WELCOME_LINE =
   "Welcome to NextScene TV — the future uncovered.";
+
 const OUTRO_LINE =
   "Thanks for watching. Subscribe to NextScene TV for more videos like this one.";
+
 const OUTRO_CARD_LINES = [
   "SUBSCRIBE FOR MORE",
   "NEXTSCENE TV — THE FUTURE UNCOVERED",
@@ -166,13 +173,21 @@ const INTRO_BG_QUERY = "futuristic city skyline night aerial";
 const OUTRO_BG_QUERY = "city skyline night lights aerial";
 
 const PLAYLIST_TITLE = "Top 10 & Documentaries — NEXTSCENE TV";
+
 const PLAYLIST_DESCRIPTION =
   "Full-length Top 10 rankings, power comparisons, and future-prediction documentaries from NEXTSCENE TV — the future uncovered.";
 
+/**
+ * Generate exactly one custom thumbnail using:
+ * Gemini -> FLUX.1-schnell -> Pillow
+ */
 async function generateCustomThumbnail(title, runDir) {
-  console.log("[thumbnail] generating new Gemini + FLUX + Pillow thumbnail...");
+  console.log(
+    "[thumbnail] generating new Gemini + FLUX + Pillow thumbnail..."
+  );
 
   const outputDir = path.join(runDir, "thumbnail-output");
+
   await fs.mkdir(outputDir, { recursive: true });
 
   try {
@@ -194,34 +209,67 @@ async function generateCustomThumbnail(title, runDir) {
       }
     );
 
-    const generatedPath = path.join(outputDir, "thumbnail_01.jpg");
-    const finalThumbnailPath = path.join(runDir, "thumbnail.jpg");
+    const generatedPath = path.join(
+      outputDir,
+      "thumbnail_01.jpg"
+    );
+
+    const finalThumbnailPath = path.join(
+      runDir,
+      "thumbnail.jpg"
+    );
 
     await fs.access(generatedPath);
-    await fs.copyFile(generatedPath, finalThumbnailPath);
 
-    console.log(`[thumbnail] ready: ${finalThumbnailPath}`);
+    await fs.copyFile(
+      generatedPath,
+      finalThumbnailPath
+    );
+
+    console.log(
+      `[thumbnail] ready: ${finalThumbnailPath}`
+    );
+
     return finalThumbnailPath;
   } catch (err) {
-    console.warn(`[thumbnail] new compositor failed: ${err.message}`);
+    console.warn(
+      `[thumbnail] new compositor failed: ${err.message}`
+    );
+
     return null;
   }
 }
 
 async function main() {
-  const runDir = path.join(__dirname, "..", "tmp", `run_${Date.now()}`);
+  const runDir = path.join(
+    __dirname,
+    "..",
+    "tmp",
+    `run_${Date.now()}`
+  );
+
   await fs.mkdir(runDir, { recursive: true });
 
-  const topic = await pickAndRecordTopic(TOPIC_POOL, TOPIC_HISTORY_PATH);
+  const topic = await pickAndRecordTopic(
+    TOPIC_POOL,
+    TOPIC_HISTORY_PATH
+  );
+
   console.log(`[topic] ${topic}`);
 
   console.log("[script] generating with Gemini...");
+
   const script = await generateScript(topic);
+
   console.log(
     `[script] title: ${script.title} (${script.segments.length} segments)`
   );
 
-  const midIndex = Math.max(1, Math.floor(script.segments.length / 2));
+  const midIndex = Math.max(
+    1,
+    Math.floor(script.segments.length / 2)
+  );
+
   script.segments.splice(midIndex, 0, {
     text: SUBSCRIBE_LINE,
     location: "",
@@ -269,17 +317,20 @@ async function main() {
     isOutro: true,
   });
 
-  const fullNarration = script.segments.map((s) => s.text).join(" ");
+  const fullNarration = script.segments
+    .map((s) => s.text)
+    .join(" ");
 
   console.log(
     "[tts] synthesizing narration (en-KE-AsiliaNeural, Kenyan English, female)..."
   );
 
-  const { audioPath, sentences } = await synthesizeNarration(
-    fullNarration,
-    runDir,
-    "en-KE-AsiliaNeural"
-  );
+  const { audioPath, sentences } =
+    await synthesizeNarration(
+      fullNarration,
+      runDir,
+      "en-KE-AsiliaNeural"
+    );
 
   if (sentences.length !== script.segments.length) {
     console.warn(
@@ -288,16 +339,21 @@ async function main() {
     );
   }
 
-  console.log("[visuals] fetching real clips/photos per segment...");
+  console.log(
+    "[visuals] fetching real clips/photos per segment..."
+  );
 
   const segmentsForBuild = [];
+
   let introBgVisual;
   let introDurationSec = 0;
 
   for (let i = 0; i < script.segments.length; i++) {
     const timing = sentences[i] ?? {
       durationSec:
-        (sentences.at(-1)?.startSec + sentences.at(-1)?.durationSec || 60) /
+        (sentences.at(-1)?.startSec +
+          sentences.at(-1)?.durationSec ||
+          60) /
         script.segments.length,
     };
 
@@ -354,18 +410,26 @@ async function main() {
         console.warn(
           `[visuals] segment ${i} ("${script.segments[i].visualQuery}") failed: ${err.message}`
         );
+
         return null;
       });
 
-      const matched = visual?.matchedTerm
+      const matchedTerm = visual?.matchedTerm
         ? ` matched "${visual.matchedTerm}"`
         : "";
 
       console.log(
-        `  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"}${matched} — wanted "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`
+        `  segment ${i}: ${
+          visual ? visual.type : "NO VISUAL FOUND"
+        }${matchedTerm} — wanted "${
+          script.segments[i].visualQuery
+        }" (${timing.durationSec.toFixed(1)}s)`
       );
 
-      if (visual && script.segments[i].countryCode) {
+      if (
+        visual &&
+        script.segments[i].countryCode
+      ) {
         const flagPath = await fetchFlag(
           script.segments[i].countryCode,
           runDir
@@ -374,12 +438,15 @@ async function main() {
         if (flagPath) {
           visual.badge = {
             rank: script.segments[i].rank ?? null,
-            countryName: script.segments[i].location || "",
+            countryName:
+              script.segments[i].location || "",
             flagPath,
           };
 
           console.log(
-            `    + badge: rank ${visual.badge.rank ?? "—"}, flag ${script.segments[i].countryCode}`
+            `    + badge: rank ${
+              visual.badge.rank ?? "—"
+            }, flag ${script.segments[i].countryCode}`
           );
         } else {
           console.warn(
@@ -397,11 +464,20 @@ async function main() {
   }
 
   const theme =
-    CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)];
+    CARD_THEMES[
+      Math.floor(
+        Math.random() * CARD_THEMES.length
+      )
+    ];
 
-  console.log(`[theme] using "${theme.name}" card theme`);
+  console.log(
+    `[theme] using "${theme.name}" card theme`
+  );
 
-  const outputPath = path.join(runDir, "final.mp4");
+  const outputPath = path.join(
+    runDir,
+    "final.mp4"
+  );
 
   console.log(
     "[ffmpeg] assembling synced video (with voiced intro/outro)..."
@@ -416,35 +492,59 @@ async function main() {
     { theme }
   );
 
-  console.log(`[done] video ready: ${outputPath}`);
-
-  // Generate exactly ONE thumbnail using the new working compositor.
-  // If it fails, keep the existing frame-extraction fallback.
-  const thumbnailPath = path.join(runDir, "thumbnail.jpg");
-  let thumbnailReady = false;
-
-  const generatedThumbnail = await generateCustomThumbnail(
-    script.title,
-    runDir
+  console.log(
+    `[done] video ready: ${outputPath}`
   );
 
+  // Generate exactly ONE thumbnail using the new compositor.
+  // If it fails, keep the existing frame-extraction fallback.
+
+  const thumbnailPath = path.join(
+    runDir,
+    "thumbnail.jpg"
+  );
+
+  let thumbnailReady = false;
+
+  const generatedThumbnail =
+    await generateCustomThumbnail(
+      script.title,
+      runDir
+    );
+
   if (generatedThumbnail) {
-    await fs.copyFile(generatedThumbnail, thumbnailPath);
+    await fs.copyFile(
+      generatedThumbnail,
+      thumbnailPath
+    );
+
     thumbnailReady = true;
-    console.log("[thumbnail] custom NEXTSCENE TV thumbnail ready");
+
+    console.log(
+      "[thumbnail] custom NEXTSCENE TV thumbnail ready"
+    );
   } else {
     try {
       const atSec = Math.max(
         0.3,
-        Math.min(1.5, introDurationSec * 0.5)
+        Math.min(
+          1.5,
+          introDurationSec * 0.5
+        )
       );
 
-      await extractThumbnail(outputPath, thumbnailPath, atSec);
+      await extractThumbnail(
+        outputPath,
+        thumbnailPath,
+        atSec
+      );
 
       thumbnailReady = true;
 
       console.log(
-        `[thumbnail] extracted frame at ${atSec.toFixed(2)}s (AI thumbnail unavailable)`
+        `[thumbnail] extracted frame at ${atSec.toFixed(
+          2
+        )}s (AI thumbnail unavailable)`
       );
     } catch (err) {
       console.warn(
@@ -454,23 +554,33 @@ async function main() {
   }
 
   if (NO_UPLOAD) {
-    console.log("[upload] skipped (--no-upload)");
+    console.log(
+      "[upload] skipped (--no-upload)"
+    );
+
     return;
   }
 
-  console.log("[upload] pushing to NEXTSCENE TV...");
+  console.log(
+    "[upload] pushing to NEXTSCENE TV..."
+  );
 
   const coveredPlaces = [
     ...new Set(
-      script.segments.map((s) => s.location).filter(Boolean)
+      script.segments
+        .map((s) => s.location)
+        .filter(Boolean)
     ),
   ];
 
-  const hashtags = buildHashtags(script.keywords, [
-    "#geopolitics",
-    "#top10",
-    "#futurepredictions",
-  ]);
+  const hashtags = buildHashtags(
+    script.keywords,
+    [
+      "#geopolitics",
+      "#top10",
+      "#futurepredictions",
+    ]
+  );
 
   const tags = buildTags(
     script.keywords,
@@ -511,12 +621,19 @@ async function main() {
     `[upload] done: https://youtube.com/watch?v=${uploaded.id}`
   );
 
-  // This is the existing YouTube thumbnail upload.
-  // It now receives the new Gemini + FLUX + Pillow thumbnail.
+  // Existing YouTube thumbnail upload.
+  // The new Gemini + FLUX + Pillow thumbnail is sent here.
+
   if (thumbnailReady) {
     try {
-      await setThumbnail(uploaded.id, thumbnailPath);
-      console.log("[thumbnail] custom thumbnail set on YouTube");
+      await setThumbnail(
+        uploaded.id,
+        thumbnailPath
+      );
+
+      console.log(
+        "[thumbnail] custom thumbnail set on YouTube"
+      );
     } catch (err) {
       console.warn(
         `[thumbnail] upload failed (video still uploaded fine, keeping YouTube's auto-picked frame): ${err.message}`
@@ -525,14 +642,20 @@ async function main() {
   }
 
   try {
-    const playlistId = await getOrCreatePlaylist(
-      PLAYLIST_TITLE,
-      PLAYLIST_DESCRIPTION
+    const playlistId =
+      await getOrCreatePlaylist(
+        PLAYLIST_TITLE,
+        PLAYLIST_DESCRIPTION
+      );
+
+    await addVideoToPlaylist(
+      playlistId,
+      uploaded.id
     );
 
-    await addVideoToPlaylist(playlistId, uploaded.id);
-
-    console.log(`[playlist] added to "${PLAYLIST_TITLE}"`);
+    console.log(
+      `[playlist] added to "${PLAYLIST_TITLE}"`
+    );
   } catch (err) {
     console.warn(
       `[playlist] failed (video still uploaded fine): ${err.message}`
@@ -542,6 +665,7 @@ async function main() {
 
 main().catch((err) => {
   console.error("[fatal]", err);
+
   process.exit(1);
 });
 ```
