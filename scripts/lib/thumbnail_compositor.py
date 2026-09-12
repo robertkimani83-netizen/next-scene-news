@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+
 """
 NEXT SCENE TV premium thumbnail compositor.
 
 Pipeline:
+
 title
 ↓
 Gemini visual concept / art direction
@@ -17,15 +19,15 @@ Real headline + category label + logo
 
 The generated background is NEVER asked to contain:
 
-* text
-* words
-* letters
-* numbers
-* logos
-* watermarks
-* captions
-* typography
-  """
+- text
+- words
+- letters
+- numbers
+- logos
+- watermarks
+- captions
+- typography
+"""
 
 import argparse
 import json
@@ -39,29 +41,28 @@ import traceback
 from pathlib import Path
 
 from PIL import (
-Image,
-ImageDraw,
-ImageEnhance,
-ImageFont,
+    Image,
+    ImageDraw,
+    ImageEnhance,
+    ImageFont,
 )
 
 try:
-import requests
+    import requests
 except ImportError:
-requests = None
+    requests = None
 
 try:
-from huggingface_hub import InferenceClient
+    from huggingface_hub import InferenceClient
 except ImportError:
-InferenceClient = None
+    InferenceClient = None
+
 
 # ============================================================
-
 # PATHS / CONFIG
-
 # ============================================================
 
-HERE = Path(**file**).resolve().parent
+HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 
 FONT_PATH = REPO_ROOT / "assets" / "fonts" / "Anton-Regular.ttf"
@@ -77,2256 +78,1913 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 GEMINI_MODELS = [
-"gemini-flash-latest",
-"gemini-3.5-flash",
-"gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
 ]
 
 FLUX_MODEL = "black-forest-labs/FLUX.1-schnell"
 
+
 # ============================================================
-
 # COLORS
-
 # ============================================================
 
 COLORS = {
-"white": (255, 255, 255),
-"yellow": (255, 214, 10),
-"red": (237, 28, 36),
-"green": (60, 220, 90),
+    "white": (255, 255, 255),
+    "yellow": (255, 214, 10),
+    "red": (237, 28, 36),
+    "green": (60, 220, 90),
 }
 
 OUTLINE_COLOR = (0, 0, 0)
 
-# ============================================================
 
+# ============================================================
 # GEMINI ART-DIRECTION PROMPT
-
 # ============================================================
 
-ANALYZE_PROMPT_TMPL = r"""
-You are the CHIEF VISUAL DIRECTOR and senior YouTube thumbnail strategist for
-NEXT SCENE TV, a premium international documentary and world-news channel.
+ANALYZE_PROMPT_TMPL = """
+You are the Chief Visual Director and Senior YouTube Thumbnail Strategist
+for NEXT SCENE TV, a premium international documentary and world-news channel.
 
-Your job is NOT simply to describe an image.
-
-Your job is to think like a professional editorial photographer, film director,
-news designer and high-performing YouTube thumbnail strategist working together.
+Your job is to turn the video title below into ONE powerful visual concept
+for a high-performing YouTube thumbnail.
 
 VIDEO TITLE:
 "{title}"
 
-============================================================
-PRIMARY OBJECTIVE
-=================
+The thumbnail should feel like a combination of:
 
-Create ONE exceptionally strong visual concept that can become a premium,
-cinematic, highly clickable YouTube documentary thumbnail.
+- BBC World News
+- Reuters / AP visual journalism
+- Netflix documentary artwork
+- premium international news television
+- modern investigative documentary photography
 
-The thumbnail must immediately communicate the STORY and create curiosity
-within approximately one second on a mobile phone.
+The result must look PROFESSIONAL, CINEMATIC, EXPENSIVE and REAL.
 
-The result must look expensive, realistic and editorial.
-
-It must NOT look like:
-
-* generic AI art
-* cheap clickbait
-* a stock-photo collage
-* a video game
-* a movie poster
-* a random collection of objects
-* an infographic
-* a children's illustration
-* an over-designed social media graphic
-
-Think:
-
-BBC documentary + Netflix documentary + Reuters/AP photography +
-premium investigative YouTube journalism.
+DO NOT create generic AI artwork.
+DO NOT create cheap clickbait.
+DO NOT create a stock-photo collage.
+DO NOT create a video-game image.
+DO NOT create a movie poster.
+DO NOT create an infographic.
+DO NOT create a children's illustration.
+DO NOT overload the image with many unrelated objects.
 
 ============================================================
-VISUAL STORYTELLING
-===================
-
-First determine:
-
-1. What is the most important subject in the story?
-2. What single visual would communicate that subject immediately?
-3. What emotion should the viewer feel?
-4. What visual creates curiosity without misleading the viewer?
-5. What should dominate the foreground?
-6. What should remain secondary in the background?
-7. Where should the headline be placed?
-
-DO NOT attempt to visually represent every word in the title.
-
-ONE STRONG IDEA IS BETTER THAN TEN WEAK IDEAS.
-
+CORE VISUAL RULE
 ============================================================
-SUBJECT SELECTION
-=================
 
-Choose the strongest possible visual subject based on the actual story.
+Choose ONE dominant visual idea.
 
-Possible dominant subjects include:
+The viewer should immediately understand the story from the image
+without needing to read the full title.
 
-* a realistic human face
-* political leader
-* soldier
-* military vehicle
-* aircraft
-* missile system
-* warship
-* city
-* skyline
-* factory
-* energy facility
-* port
-* satellite
-* computer system
-* robot
-* landscape
-* damaged infrastructure
-* crowd
-* border
-* strategic location
-* other story-specific subject
+Use:
 
-Only use people when they genuinely strengthen the story.
+- one dominant subject
+- strong depth
+- cinematic perspective
+- realistic photography
+- dramatic but believable lighting
+- professional composition
+- clear foreground / middle-ground / background separation
+- strong contrast
+- realistic atmospheric effects
 
-Only use military equipment when it genuinely relates to the story.
-
-Do NOT add random dramatic objects simply to make the image exciting.
+The image must feel like a frame from a major international documentary.
 
 ============================================================
 COMPOSITION
-===========
+============================================================
 
-Design the image like a professional photograph.
+Reserve approximately 35-45% of the image for the headline.
 
-Use:
+The headline will be added later by Pillow.
 
-* strong foreground
-* clear middle ground
-* atmospheric background
-* realistic depth
-* deliberate perspective
-* strong subject separation
-* cinematic framing
-* natural scale
-* visual hierarchy
+Therefore:
 
-Prefer ONE dominant hero subject.
+DO NOT place important faces, vehicles, buildings, weapons,
+flags, landmarks or other important subjects in the headline area.
 
-A secondary supporting element may be used when it helps explain the story.
+The main visual subject should be positioned intelligently on the
+opposite side of the headline.
 
-Never create a cluttered collage.
+Use strong visual hierarchy.
 
-Avoid putting ten different countries, flags, leaders or objects into one image.
+Prefer:
 
-If multiple subjects are absolutely necessary, keep one clearly dominant.
+- wide cinematic framing
+- slightly low camera angles
+- dramatic perspective
+- foreground objects
+- atmospheric depth
+- realistic scale
+
+Avoid flat compositions.
 
 ============================================================
-THUMBNAIL LAYOUT
-================
-
-The final image is 16:9.
-
-Plan the composition specifically for a YouTube thumbnail.
-
-Place the main subject approximately on the left or right third.
-
-Reserve approximately 35–45% of the opposite side for the headline.
-
-The headline area should have:
-
-* darker tones
-* simpler visual information
-* enough contrast
-* no important face
-* no important object
-* no critical story information
-
-The headline must NEVER cover the main subject's face or the most important object.
-
-Think about the image after it is reduced to approximately 15% of its original size.
-
-It must still be understandable.
-
+SUBJECT SELECTION
 ============================================================
-CAMERA AND CINEMATIC PHOTOGRAPHY
-================================
 
-Describe the camera perspective when useful.
+Choose the most visually powerful interpretation of the title.
 
-Possible approaches:
+For geopolitical or military stories:
 
-* low-angle cinematic perspective
-* medium telephoto documentary shot
-* wide establishing shot
-* close portrait
-* aerial perspective
-* long-lens compressed background
-* dramatic foreground perspective
+Use realistic military equipment, aircraft, ships, soldiers,
+government buildings, borders, maps represented visually,
+satellite-style landscapes, command centers, or tense international
+scenes.
 
-Use realistic photographic characteristics:
+Avoid excessive explosions unless the title specifically concerns war,
+attack or destruction.
 
-* natural depth of field
-* realistic lens perspective
-* believable shadows
-* physically plausible lighting
-* realistic skin
-* realistic materials
-* realistic atmospheric haze
-* subtle filmic contrast
+For Africa stories:
 
-Do NOT make everything excessively sharp.
+Use realistic African locations, cities, people, landscapes,
+infrastructure, markets, ports, technology, government buildings,
+mining areas or other relevant subjects.
 
-Do NOT make everything glow.
+Avoid stereotypical poverty imagery unless the story is specifically
+about poverty.
 
-Do NOT make everything blue.
+For economy/business stories:
 
-Do NOT use excessive HDR.
+Use financial districts, factories, ports, oil infrastructure,
+currency, trading environments, shipping containers,
+business executives, industrial production or economic infrastructure.
 
-============================================================
-LIGHTING
-========
+Avoid cheesy floating money graphics.
 
-Use sophisticated cinematic lighting appropriate to the story.
+For country comparisons/rankings:
 
-Possible lighting:
+Show visually distinctive real-world elements associated with the
+countries while maintaining a serious documentary style.
 
-* dramatic sunset
-* cold overcast daylight
-* warm directional sunlight
-* storm lighting
-* controlled newsroom-like contrast
-* dusk
-* dawn
-* realistic city lights
-* atmospheric backlight
+Do not create a collage of flags.
 
-Use light to guide the viewer's eye toward the hero subject.
+For cities:
 
-Create separation between foreground and background.
+Use recognizable architecture, skyline, roads, transport,
+infrastructure or landmarks.
 
-Avoid artificial neon lighting unless the story specifically concerns technology
-or a futuristic environment.
+For technology:
 
-============================================================
-COLOR DIRECTION
-===============
+Use realistic modern technology, data centers, robotics,
+AI infrastructure, semiconductor facilities, satellites,
+cybersecurity environments or advanced machines.
 
-Use a restrained cinematic palette.
+Avoid generic glowing blue "AI" graphics.
 
-Choose colors appropriate to the story.
+For disasters:
 
-Possible palettes:
+Show realistic environmental conditions, damaged infrastructure,
+storms, flooding, fires, earthquakes or emergency response.
 
-* charcoal + steel + muted red
-* dark blue + warm skin tones
-* black + amber
-* cool gray + red accents
-* natural earth tones
-* deep green + gold
-* dark navy + white
+Keep the image dramatic but believable.
 
-Avoid oversaturated rainbow colors.
+For people:
 
-Avoid excessive red everywhere.
+Use realistic documentary photography style.
 
-Avoid artificial glowing backgrounds.
+Faces should look natural and emotionally appropriate.
 
-============================================================
-GEOPOLITICS / WAR / CONFLICT
-============================
-
-For geopolitical stories, prioritize realism and strategic tension.
-
-Possible visual elements:
-
-* military formations
-* realistic soldiers
-* aircraft
-* warships
-* missile defense systems
-* military vehicles
-* strategic infrastructure
-* political buildings
-* tense borders
-* satellite-style geography when genuinely useful
-* leaders only when the story specifically concerns them
-
-Create tension through:
-
-* scale
-* distance
-* posture
-* atmosphere
-* lighting
-* composition
-
-Do NOT automatically create explosions.
-
-Do NOT automatically create fire.
-
-Do NOT make it look like a battlefield video game.
-
-Do NOT cover the image with flags.
-
-============================================================
-AFRICA
-======
-
-When the story concerns Africa, use authentic and modern visual storytelling.
-
-Possible subjects:
-
-* modern African cities
-* infrastructure
-* ports
-* roads
-* railways
-* technology
-* industry
-* energy
-* landscapes
-* wildlife
-* people
-* business districts
-
-Avoid stereotypical poverty imagery unless poverty is actually the story.
-
-Make African environments look authentic, modern and cinematic.
-
-============================================================
-ECONOMY / BUSINESS
-==================
-
-Use visual storytelling through:
-
-* financial districts
-* ports
-* factories
-* energy infrastructure
-* logistics
-* technology
-* markets
-* transportation
-* business leaders
-* industrial scale
-
-Avoid literal floating money unless directly relevant.
-
-============================================================
-COUNTRIES / RANKINGS
-====================
-
-If the title concerns countries or rankings:
-
-DO NOT create a collage of many flags.
-
-Instead identify the strongest visual representation of the subject.
-
-Use:
-
-* recognizable landscape
-* skyline
-* landmark
-* infrastructure
-* geography
-* distinctive environment
-* strategic location
-
-One strong recognizable visual is preferred over many small symbols.
-
-============================================================
-CITIES
-======
-
-Use recognizable urban environments.
-
-Prioritize:
-
-* skyline
-* landmark
-* streets
-* transportation
-* architecture
-* atmosphere
-* recognizable geography
-
-Make the city feel alive and photographic.
-
-============================================================
-TECHNOLOGY
-==========
-
-Use realistic technology.
-
-Possible subjects:
-
-* AI hardware
-* data centers
-* semiconductor factories
-* robots
-* satellites
-* advanced vehicles
-* computers
-* scientific equipment
-* futuristic but believable infrastructure
-
-Avoid the generic blue glowing "AI brain" image.
-
-Avoid excessive holograms.
-
-============================================================
-DISASTERS
-=========
-
-Show realistic consequences.
-
-Use:
-
-* flooding
-* damaged infrastructure
-* wildfire
-* storm
-* earthquake damage
-* drought
-* volcanic activity
-
-Show scale and human/environmental consequences where appropriate.
-
-Avoid unrealistic Hollywood destruction.
-
-============================================================
-PEOPLE AND FACES
-================
-
-When a person is the dominant subject:
-
-Create a realistic photographic human.
-
-Prioritize:
-
-* natural facial anatomy
-* realistic eyes
-* realistic skin
-* natural expression
-* believable clothing
-* believable lighting
-
-The face must communicate the story emotion.
-
-Avoid distorted faces.
-
-Avoid excessive beauty retouching.
-
-Avoid exaggerated expressions.
+Avoid distorted faces, extra fingers, artificial skin,
+plastic-looking people or exaggerated expressions.
 
 ============================================================
 EMOTION
-=======
+============================================================
 
-Choose ONE dominant emotional response:
+The thumbnail should create one strong emotion:
 
-* tension
-* urgency
-* curiosity
-* concern
-* surprise
-* anticipation
-* awe
-* hope
+- tension
+- urgency
+- curiosity
+- concern
+- surprise
+- scale
+- mystery
+- anticipation
+- importance
 
-Do not mix too many emotional signals.
+Do not make the emotion cartoonish.
 
 ============================================================
-HEADLINE STRATEGY
-=================
+HEADLINE
+============================================================
 
-The thumbnail headline must NOT repeat the full video title.
+Create a short thumbnail headline of approximately 2-6 words.
 
-Create a short headline of approximately 2–6 words.
+The headline should NOT simply repeat the full video title.
 
-The headline should be:
+It should capture the strongest hook.
 
-* powerful
-* easy to read
-* emotionally interesting
-* directly connected to the story
-* understandable without the YouTube title
+Examples:
 
-Prefer strong phrases rather than complete sentences.
+"THE NEXT WAR?"
+"AFRICA'S HIDDEN POWER"
+"THE WORLD IS CHANGING"
+"10 COUNTRIES AT RISK"
+"THE MONEY SHIFT"
+"WHO WILL FALL FIRST?"
 
-Examples of style:
+Return individual words separately.
 
-QUIETLY ARMING
-THE NEXT CONFLICT
-A NEW POWER
-AFRICA'S BIG SHIFT
-THE HIDDEN THREAT
-THE WORLD IS CHANGING
+Each word must have one of these colors:
 
-Do NOT use clickbait that contradicts the story.
+white
+yellow
+red
+green
 
-Use capitalization appropriate for a bold documentary thumbnail.
+Use:
 
-The headline will be added separately using Pillow.
+RED for danger, conflict, warning or urgency.
+
+YELLOW for numbers, important emphasis or key facts.
+
+GREEN for positive growth, opportunity or progress.
+
+WHITE for normal headline words.
+
+Do not use more than 6 words.
 
 ============================================================
-TEXT PROHIBITION
-================
+STRICT BACKGROUND RULE
+============================================================
 
-ABSOLUTELY DO NOT PLACE ANY TEXT IN THE GENERATED IMAGE.
+The generated image must contain NO:
 
-Do not generate:
+- text
+- words
+- letters
+- numbers
+- logos
+- watermarks
+- captions
+- labels
+- typography
+- signs with readable writing
 
-* words
-* letters
-* numbers
-* captions
-* headlines
-* signs
-* logos
-* watermarks
-* labels
-* typography
-* readable writing
-
-If the scene naturally contains signs, screens or documents, make them
-unreadable or positioned so that no text is visible.
-
-The generated image must be a CLEAN CINEMATIC PHOTOGRAPH.
+The final headline will be added separately.
 
 ============================================================
-NEGATIVE PROMPT / QUALITY CONTROL
-=================================
-
-The visual prompt must explicitly discourage:
-
-* generic stock photography
-* generic AI art
-* illustration
-* cartoon
-* anime
-* video game graphics
-* excessive HDR
-* excessive saturation
-* plastic skin
-* distorted faces
-* extra limbs
-* duplicated people
-* impossible anatomy
-* random objects
-* clutter
-* collage composition
-* excessive explosions
-* fake text
-* logos
-* watermarks
-* captions
-* typography
-* floating symbols
-* unnecessary flags
-* cheesy visual effects
-
+QUALITY CONTROL
 ============================================================
-FINAL IMAGE PROMPT
-==================
 
-Write a highly detailed English image prompt describing ONLY the visual scene.
+The visual prompt must explicitly request:
 
-The prompt should specify:
+- photorealistic
+- cinematic documentary photography
+- professional lighting
+- realistic materials
+- realistic human anatomy
+- realistic scale
+- detailed environment
+- natural color grading
+- high dynamic range
+- strong subject separation
+- premium editorial photography
 
-* dominant subject
-* environment
-* camera perspective
-* composition
-* foreground
-* background
-* lighting
-* atmosphere
-* color palette
-* depth
-* realistic photographic style
-* headline negative space
-* documentary realism
+Avoid:
 
-The prompt should be detailed enough that a professional image model can
-produce a strong result without guessing.
+- distorted anatomy
+- duplicate people
+- duplicate vehicles
+- extra limbs
+- melted objects
+- unrealistic buildings
+- fantasy unless explicitly required
+- cartoon style
+- illustration style
+- oversaturated colors
+- excessive lens effects
+- fake text
+- watermarks
+- logos
+- captions
+- typography
 
 ============================================================
 OUTPUT
-======
+============================================================
 
 Return ONLY valid JSON.
 
 Use exactly this structure:
 
 {{
-"image_prompt": "Detailed English prompt describing ONLY the cinematic photographic scene.",
-"category": "one of: war, africa, economy, countries, cities, technology, disaster, people, other",
-"category_label": "short 1-3 word ALL CAPS label",
-"words": [
-{{"text": "WORD", "color": "white"}}
-]
+  "image_prompt": "detailed cinematic visual prompt",
+  "category": "war|africa|economy|countries|cities|technology|disaster|people|other",
+  "category_label": "short uppercase label",
+  "words": [
+    {{
+      "text": "WORD",
+      "color": "white"
+    }}
+  ]
 }}
 
-For "words", use only:
+The image_prompt should be detailed enough for FLUX to generate a
+premium documentary-quality background.
 
-* white
-* yellow
-* red
-* green
-
-Use color intentionally.
-
-Do not use more than 6 headline words.
-
-Do not include markdown.
-
-Do not include ```json.
-
-Do not explain your answer.
-
-Return ONLY the JSON.
+The image_prompt must NOT request text or typography.
 """
 
+
 # ============================================================
-
-# GENERAL HELPERS
-
+# JSON CLEANING
 # ============================================================
 
 def _clean_json(text: str) -> str:
-if not text:
-return ""
+    """
+    Clean Gemini output and extract the JSON object.
+    """
+    if not text:
+        return ""
 
-````
-text = text.strip()
+    text = text.strip()
 
-text = re.sub(
-    r"^```(?:json)?\s*",
-    "",
-    text,
-    flags=re.IGNORECASE,
-)
+    # Remove Markdown code fences.
+    text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^```\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
 
-text = re.sub(
-    r"\s*```$",
-    "",
-    text,
-    flags=re.IGNORECASE,
-)
+    # Extract the first JSON object if Gemini added extra text.
+    start = text.find("{")
+    end = text.rfind("}")
 
-return text.strip()
-````
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+
+    return text.strip()
+
+
+# ============================================================
+# FALLBACK IMAGE PROMPTS
+# ============================================================
 
 def _fallback_prompt(title: str, category: str) -> str:
 
-```
-prompts = {
-    "war": (
-        "A premium cinematic documentary photograph directly connected "
-        "to the story, showing one dominant realistic geopolitical or "
-        "military subject in a believable environment, dramatic but "
-        "natural lighting, strong foreground and atmospheric background, "
-        "realistic depth, sophisticated color grading, editorial news "
-        "photography, with clean darker negative space on the opposite "
-        "side for a large headline"
-    ),
+    prompts = {
+        "war": (
+            "A tense cinematic international security scene, "
+            "realistic military infrastructure and equipment, "
+            "dramatic atmospheric sky, subtle smoke and haze, "
+            "strong depth, serious geopolitical documentary photography, "
+            "realistic materials and lighting, premium editorial photography"
+        ),
 
-    "africa": (
-        "A premium documentary photograph connected to the African "
-        "story, showing one dominant authentic modern African subject, "
-        "city, infrastructure, landscape, industry or people relevant "
-        "to the story, cinematic natural lighting, realistic depth, "
-        "editorial photography, sophisticated color grading and clean "
-        "darker negative space for headline text"
-    ),
+        "africa": (
+            "A powerful cinematic documentary scene in modern Africa, "
+            "realistic African city or infrastructure, "
+            "dramatic natural lighting, realistic people and environment, "
+            "strong depth and scale, premium international documentary photography"
+        ),
 
-    "economy": (
-        "A premium cinematic documentary photograph representing the "
-        "economic story through one dominant realistic subject such as "
-        "modern infrastructure, industry, energy, transportation, "
-        "business district or financial environment, sophisticated "
-        "lighting, realistic photography, strong depth and clean "
-        "negative space for headline text"
-    ),
+        "economy": (
+            "A cinematic global economic scene showing modern industry, "
+            "ports, shipping infrastructure, financial districts and commerce, "
+            "dramatic realistic lighting, premium business documentary photography"
+        ),
 
-    "countries": (
-        "A premium cinematic documentary photograph representing the "
-        "country or countries in the story through one strong recognizable "
-        "visual such as landscape, skyline, infrastructure, landmark or "
-        "strategic environment, realistic photography, dramatic natural "
-        "lighting, strong depth and clean darker negative space for "
-        "headline text"
-    ),
+        "countries": (
+            "A cinematic international geopolitical landscape showing "
+            "distinctive national environments, major infrastructure and "
+            "global scale, realistic documentary photography, "
+            "dramatic lighting and atmospheric depth"
+        ),
 
-    "cities": (
-        "A premium cinematic documentary photograph of a recognizable "
-        "city environment connected to the story, one dominant landmark "
-        "or urban subject, realistic architecture, natural people and "
-        "vehicles where useful, dramatic cinematic lighting, realistic "
-        "photography and clean negative space for headline text"
-    ),
+        "cities": (
+            "A dramatic cinematic cityscape with recognizable modern "
+            "architecture, roads, infrastructure and urban activity, "
+            "realistic documentary photography, atmospheric depth, "
+            "professional editorial lighting"
+        ),
 
-    "technology": (
-        "A premium cinematic documentary photograph showing one dominant "
-        "realistic advanced technology subject connected to the story, "
-        "such as AI hardware, robotics, data centers, chips, satellites "
-        "or advanced infrastructure, sophisticated realistic lighting, "
-        "deep perspective and clean negative space for headline text"
-    ),
+        "technology": (
+            "A realistic futuristic technology facility with advanced "
+            "computing infrastructure, robotics, data centers and modern "
+            "engineering equipment, cinematic documentary photography, "
+            "realistic materials and professional lighting"
+        ),
 
-    "disaster": (
-        "A realistic premium cinematic documentary photograph showing "
-        "one dominant environmental or infrastructure consequence of the "
-        "story, realistic scale, dramatic natural lighting, authentic "
-        "materials, atmospheric depth and clean darker negative space "
-        "for headline text"
-    ),
+        "disaster": (
+            "A dramatic realistic disaster-response documentary scene, "
+            "damaged infrastructure and emergency conditions, "
+            "professional responders, atmospheric weather, "
+            "cinematic lighting and realistic scale"
+        ),
 
-    "people": (
-        "A premium cinematic documentary photograph focused on one "
-        "realistic human subject relevant to the story, natural expression, "
-        "authentic environment, sophisticated cinematic lighting, realistic "
-        "skin and anatomy, strong depth and clean negative space for "
-        "headline text"
-    ),
+        "people": (
+            "A powerful realistic documentary portrait scene with "
+            "natural human expressions, cinematic lighting, "
+            "realistic skin and anatomy, environmental context, "
+            "premium editorial photography"
+        ),
 
-    "other": (
-        "A premium cinematic documentary photograph directly connected "
-        "to the story, one dominant realistic subject, strong visual "
-        "storytelling, dramatic but natural lighting, realistic depth, "
-        "editorial news photography and clean darker negative space for "
-        "headline text"
-    ),
-}
+        "other": (
+            "A powerful cinematic international documentary scene "
+            "related directly to the story, realistic photography, "
+            "strong visual hierarchy, dramatic lighting, "
+            "professional editorial composition"
+        ),
+    }
 
-base = prompts.get(category, prompts["other"])
+    base = prompts.get(category, prompts["other"])
 
-return (
-    f"{base}. The story concerns: {title}. "
-    "No text, no words, no letters, no numbers, no logos, "
-    "no watermarks, no captions, no labels, no typography."
-)
-```
+    return (
+        f"{base}. "
+        f"The story concerns: {title}. "
+        "Photorealistic, cinematic documentary photography, "
+        "high dynamic range, realistic materials, natural colors, "
+        "strong subject separation, professional composition. "
+        "No text, no words, no letters, no numbers, no logos, "
+        "no watermarks, no captions, no labels, no typography."
+    )
+
 
 # ============================================================
-
 # GEMINI TITLE ANALYSIS
-
 # ============================================================
 
 def analyze_title_with_gemini(title: str):
 
-```
-if not GEMINI_API_KEY:
-    return None
+    if not GEMINI_API_KEY:
+        print("[thumbnail] GEMINI_API_KEY not available")
+        return None
 
-if requests is None:
-    print(
-        "[thumbnail] requests is not installed",
-        file=sys.stderr,
-    )
-    return None
+    if requests is None:
+        print("[thumbnail] requests package not available")
+        return None
 
-safe_title = title.replace('"', "'")
+    safe_title = title.replace('"', "'")
 
-prompt = ANALYZE_PROMPT_TMPL.format(
-    title=safe_title
-)
+    prompt = ANALYZE_PROMPT_TMPL.format(title=safe_title)
 
-last_err = None
+    for model in GEMINI_MODELS:
 
-for model in GEMINI_MODELS:
-
-    try:
-        print(
-            f"[thumbnail] asking Gemini model: {model}"
+        url = (
+            "https://generativelanguage.googleapis.com/"
+            f"v1beta/models/{model}:generateContent"
         )
 
-        res = requests.post(
-            (
-                "https://generativelanguage.googleapis.com/"
-                f"v1beta/models/{model}:generateContent"
-            ),
-            headers={
-                "x-goog-api-key": GEMINI_API_KEY,
-                "Content-Type": "application/json",
-            },
-            json={
-                "contents": [
-                    {
-                        "parts": [
-                            {
-                                "text": prompt
-                            }
-                        ]
-                    }
-                ]
-            },
-            timeout=30,
-        )
+        headers = {
+            "x-goog-api-key": GEMINI_API_KEY,
+            "Content-Type": "application/json",
+        }
 
-        if not res.ok:
-            raise RuntimeError(
-                f"{model} responded {res.status_code}: "
-                f"{res.text[:500]}"
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        }
+
+        try:
+
+            print(
+                f"[thumbnail] asking Gemini for visual direction: {model}"
             )
 
-        data = res.json()
-
-        raw = (
-            data["candidates"][0]
-            ["content"]
-            ["parts"][0]
-            ["text"]
-        )
-
-        parsed = json.loads(
-            _clean_json(raw)
-        )
-
-        words = parsed.get("words") or []
-
-        if not words:
-            raise RuntimeError(
-                "Gemini returned no headline words"
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=60,
             )
 
-        cleaned_words = []
-
-        for w in words:
-
-            if not isinstance(w, dict):
+            if response.status_code != 200:
+                print(
+                    f"[thumbnail] Gemini {model} returned "
+                    f"{response.status_code}: {response.text[:500]}"
+                )
                 continue
 
-            text = str(
-                w.get("text", "")
+            data = response.json()
+
+            candidates = data.get("candidates", [])
+
+            if not candidates:
+                print(
+                    f"[thumbnail] Gemini {model} returned no candidates"
+                )
+                continue
+
+            parts = (
+                candidates[0]
+                .get("content", {})
+                .get("parts", [])
+            )
+
+            raw = ""
+
+            for part in parts:
+                if isinstance(part, dict) and part.get("text"):
+                    raw += part["text"]
+
+            if not raw:
+                print(
+                    f"[thumbnail] Gemini {model} returned empty text"
+                )
+                continue
+
+            cleaned = _clean_json(raw)
+
+            result = json.loads(cleaned)
+
+            if not isinstance(result, dict):
+                raise ValueError("Gemini response was not a JSON object")
+
+            category = str(
+                result.get("category", "other")
+            ).lower().strip()
+
+            valid_categories = {
+                "war",
+                "africa",
+                "economy",
+                "countries",
+                "cities",
+                "technology",
+                "disaster",
+                "people",
+                "other",
+            }
+
+            if category not in valid_categories:
+                category = "other"
+
+            category_label = str(
+                result.get(
+                    "category_label",
+                    "WORLD",
+                )
+            ).strip().upper()
+
+            image_prompt = str(
+                result.get("image_prompt", "")
             ).strip()
 
-            if not text:
-                continue
+            if not image_prompt:
+                image_prompt = _fallback_prompt(
+                    title,
+                    category,
+                )
 
-            color = w.get(
-                "color",
-                "white"
+            # Force the no-text rule.
+            image_prompt += (
+                "\n\nSTRICT NEGATIVE REQUIREMENT: "
+                "No text, no words, no letters, no numbers, "
+                "no logos, no watermarks, no captions, "
+                "no labels, no typography, no readable signs."
             )
 
-            if color not in COLORS:
-                color = "white"
+            words = result.get("words", [])
 
-            cleaned_words.append(
-                {
-                    "text": text.upper(),
-                    "color": color,
-                }
+            cleaned_words = []
+
+            if isinstance(words, list):
+
+                for word in words[:6]:
+
+                    if not isinstance(word, dict):
+                        continue
+
+                    text = str(
+                        word.get("text", "")
+                    ).strip()
+
+                    color = str(
+                        word.get("color", "white")
+                    ).lower().strip()
+
+                    if not text:
+                        continue
+
+                    if color not in COLORS:
+                        color = "white"
+
+                    cleaned_words.append(
+                        {
+                            "text": text,
+                            "color": color,
+                        }
+                    )
+
+            if not cleaned_words:
+                fallback = analyze_title_fallback(title)
+
+                cleaned_words = fallback["words"]
+
+                if category == "other":
+                    category = fallback["category"]
+
+                if category_label == "WORLD":
+                    category_label = fallback["category_label"]
+
+            result = {
+                "image_prompt": image_prompt,
+                "category": category,
+                "category_label": category_label,
+                "words": cleaned_words[:6],
+            }
+
+            print(
+                "[thumbnail] Gemini direction received: "
+                f"{result['category']} / "
+                f"{result['category_label']}"
             )
 
-        if not cleaned_words:
-            raise RuntimeError(
-                "Gemini returned an empty headline"
+            return result
+
+        except Exception as exc:
+
+            print(
+                f"[thumbnail] Gemini {model} failed: {exc}"
             )
 
-        cleaned_words = cleaned_words[:6]
+    print(
+        "[thumbnail] all Gemini models failed; "
+        "using local fallback"
+    )
 
-        category = (
-            parsed.get("category")
-            or "other"
-        )
+    return None
 
-        allowed_categories = {
-            "war",
-            "africa",
-            "economy",
-            "countries",
-            "cities",
-            "technology",
-            "disaster",
-            "people",
-            "other",
-        }
-
-        if category not in allowed_categories:
-            category = "other"
-
-        category_label = (
-            parsed.get("category_label")
-            or ""
-        ).upper().strip()
-
-        category_label = category_label[:24]
-
-        image_prompt = (
-            parsed.get("image_prompt")
-            or _fallback_prompt(
-                title,
-                category,
-            )
-        )
-
-        image_prompt = (
-            f"{image_prompt}. "
-            "Clean cinematic photographic background only. "
-            "NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, "
-            "NO LOGOS, NO WATERMARKS, NO CAPTIONS, "
-            "NO LABELS, NO TYPOGRAPHY."
-        )
-
-        return {
-            "image_prompt": image_prompt,
-            "category": category,
-            "category_label": category_label,
-            "words": cleaned_words,
-        }
-
-    except Exception as err:
-
-        last_err = err
-
-        print(
-            (
-                f"[thumbnail] title analysis via {model} failed: "
-                f"{err}, trying next model..."
-            ),
-            file=sys.stderr,
-        )
-
-print(
-    (
-        "[thumbnail] all Gemini analysis models failed "
-        f"({last_err}), using rule-based fallback"
-    ),
-    file=sys.stderr,
-)
-
-return None
-```
 
 # ============================================================
-
-# RULE-BASED FALLBACK ANALYSIS
-
+# LOCAL TITLE ANALYSIS FALLBACK
 # ============================================================
 
 def analyze_title_fallback(title: str):
 
-```
-lower = title.lower()
+    lower = title.lower()
 
-category = "other"
-
-if any(
-    word in lower
-    for word in [
-        "war",
-        "military",
-        "army",
-        "soldier",
-        "conflict",
-        "missile",
-        "weapon",
-        "battle",
-        "attack",
-        "invasion",
-        "arming",
-        "armed",
-    ]
-):
-    category = "war"
-
-elif any(
-    word in lower
-    for word in [
-        "africa",
-        "african",
-        "kenya",
-        "nigeria",
-        "ghana",
-        "ethiopia",
-        "tanzania",
-        "uganda",
-        "south africa",
-        "rwanda",
-    ]
-):
-    category = "africa"
-
-elif any(
-    word in lower
-    for word in [
-        "economy",
-        "economic",
-        "money",
-        "market",
-        "business",
-        "trade",
-        "bank",
-        "finance",
-        "oil",
-        "gold",
-        "currency",
-    ]
-):
-    category = "economy"
-
-elif any(
-    word in lower
-    for word in [
-        "country",
-        "countries",
-        "nation",
-        "nations",
-        "ranking",
-        "ranked",
-        "richest",
-        "poorest",
-        "largest",
-        "smallest",
-    ]
-):
-    category = "countries"
-
-elif any(
-    word in lower
-    for word in [
-        "city",
-        "cities",
-        "capital",
-        "urban",
-        "skyline",
-    ]
-):
-    category = "cities"
-
-elif any(
-    word in lower
-    for word in [
-        "ai",
-        "artificial intelligence",
-        "robot",
-        "robotics",
-        "technology",
-        "tech",
-        "chip",
-        "computer",
-        "satellite",
-        "future",
-    ]
-):
-    category = "technology"
-
-elif any(
-    word in lower
-    for word in [
-        "flood",
-        "fire",
-        "earthquake",
-        "storm",
-        "disaster",
-        "drought",
-        "volcano",
-        "hurricane",
-        "tornado",
-    ]
-):
-    category = "disaster"
-
-elif any(
-    word in lower
-    for word in [
-        "people",
-        "population",
-        "president",
-        "leader",
-        "person",
-        "human",
-    ]
-):
-    category = "people"
-
-words_raw = re.findall(
-    r"[A-Za-z0-9]+",
-    title
-)
-
-dramatic = {
-    "war",
-    "collapse",
-    "crisis",
-    "danger",
-    "attack",
-    "deadly",
-    "disaster",
-    "destroyed",
-    "threat",
-    "shock",
-    "warning",
-    "fear",
-    "conflict",
-    "arming",
-}
-
-positive = {
-    "growth",
-    "rise",
-    "rising",
-    "success",
-    "future",
-    "power",
-    "strong",
-    "boom",
-    "opportunity",
-}
-
-result_words = []
-
-for word in words_raw[:8]:
-
-    lw = word.lower()
-
-    if lw in dramatic:
-        color = "red"
-
-    elif lw in positive:
-        color = "green"
-
-    elif re.fullmatch(
-        r"\d+(?:-\d+)?",
-        word
+    if any(
+        word in lower
+        for word in [
+            "war",
+            "warfare",
+            "military",
+            "weapon",
+            "weapons",
+            "conflict",
+            "attack",
+            "army",
+            "missile",
+            "nuclear",
+            "invasion",
+            "battle",
+        ]
     ):
-        color = "yellow"
+        category = "war"
+
+    elif any(
+        word in lower
+        for word in [
+            "africa",
+            "african",
+            "kenya",
+            "nigeria",
+            "ethiopia",
+            "ghana",
+            "tanzania",
+            "uganda",
+            "south africa",
+        ]
+    ):
+        category = "africa"
+
+    elif any(
+        word in lower
+        for word in [
+            "economy",
+            "economic",
+            "money",
+            "market",
+            "markets",
+            "business",
+            "trade",
+            "finance",
+            "financial",
+            "dollar",
+            "currency",
+            "investment",
+        ]
+    ):
+        category = "economy"
+
+    elif any(
+        word in lower
+        for word in [
+            "country",
+            "countries",
+            "nation",
+            "nations",
+            "ranking",
+            "ranked",
+            "top ",
+            "best ",
+            "worst ",
+        ]
+    ):
+        category = "countries"
+
+    elif any(
+        word in lower
+        for word in [
+            "city",
+            "cities",
+            "capital",
+            "urban",
+            "town",
+        ]
+    ):
+        category = "cities"
+
+    elif any(
+        word in lower
+        for word in [
+            "technology",
+            "tech",
+            "ai",
+            "artificial intelligence",
+            "robot",
+            "robots",
+            "computer",
+            "chip",
+            "chips",
+            "data center",
+            "satellite",
+        ]
+    ):
+        category = "technology"
+
+    elif any(
+        word in lower
+        for word in [
+            "disaster",
+            "earthquake",
+            "flood",
+            "flooding",
+            "fire",
+            "storm",
+            "hurricane",
+            "collapse",
+            "crisis",
+        ]
+    ):
+        category = "disaster"
+
+    elif any(
+        word in lower
+        for word in [
+            "people",
+            "person",
+            "leader",
+            "president",
+            "population",
+            "women",
+            "men",
+        ]
+    ):
+        category = "people"
 
     else:
-        color = "white"
+        category = "other"
 
-    result_words.append(
-        {
-            "text": word.upper(),
-            "color": color,
-        }
-    )
+    labels = {
+        "war": "GLOBAL CONFLICT",
+        "africa": "AFRICA",
+        "economy": "ECONOMY",
+        "countries": "COUNTRIES",
+        "cities": "CITIES",
+        "technology": "TECHNOLOGY",
+        "disaster": "BREAKING",
+        "people": "PEOPLE",
+        "other": "WORLD",
+    }
 
-if not result_words:
-    result_words = [
-        {
-            "text": "THE FUTURE",
-            "color": "white",
-        }
-    ]
-
-labels = {
-    "war": "GLOBAL CONFLICT",
-    "africa": "AFRICA",
-    "economy": "ECONOMY",
-    "countries": "COUNTRIES",
-    "cities": "CITIES",
-    "technology": "TECHNOLOGY",
-    "disaster": "BREAKING",
-    "people": "PEOPLE",
-    "other": "WORLD",
-}
-
-return {
-    "image_prompt": _fallback_prompt(
-        title,
-        category,
-    ),
-    "category": category,
-    "category_label": labels.get(
+    category_label = labels.get(
         category,
         "WORLD",
-    ),
-    "words": result_words[:6],
-}
-```
+    )
+
+    dramatic_words = {
+        "war",
+        "attack",
+        "danger",
+        "crisis",
+        "collapse",
+        "threat",
+        "conflict",
+        "weapon",
+        "weapons",
+        "nuclear",
+        "warning",
+        "risk",
+        "dead",
+        "death",
+        "disaster",
+        "explosion",
+        "invasion",
+        "battle",
+        "fall",
+        "falls",
+        "fighting",
+    }
+
+    positive_words = {
+        "growth",
+        "rise",
+        "rising",
+        "success",
+        "successfully",
+        "opportunity",
+        "future",
+        "power",
+        "strong",
+        "strongest",
+        "rich",
+        "wealth",
+        "development",
+    }
+
+    number_pattern = re.compile(
+        r"\d+(?:\.\d+)?%?"
+    )
+
+    words = []
+
+    for raw_word in title.split():
+
+        clean = raw_word.strip(
+            ".,!?;:()[]{}\"'"
+        )
+
+        if not clean:
+            continue
+
+        lower_word = clean.lower()
+
+        if number_pattern.fullmatch(clean):
+            color = "yellow"
+
+        elif lower_word in dramatic_words:
+            color = "red"
+
+        elif lower_word in positive_words:
+            color = "green"
+
+        else:
+            color = "white"
+
+        words.append(
+            {
+                "text": clean,
+                "color": color,
+            }
+        )
+
+    # Keep the strongest first words if title is long.
+    words = words[:6]
+
+    # If no words exist, use a fallback.
+    if not words:
+        words = [
+            {
+                "text": "THE",
+                "color": "white",
+            },
+            {
+                "text": "WORLD",
+                "color": "yellow",
+            },
+            {
+                "text": "CHANGES",
+                "color": "red",
+            },
+        ]
+
+    return {
+        "image_prompt": _fallback_prompt(
+            title,
+            category,
+        ),
+        "category": category,
+        "category_label": category_label,
+        "words": words,
+    }
+
+
+# ============================================================
+# COMBINED TITLE ANALYSIS
+# ============================================================
 
 def analyze_title(title: str):
 
-```
-print(
-    "[thumbnail] analyzing title..."
-)
+    result = analyze_title_with_gemini(title)
 
-result = analyze_title_with_gemini(
-    title
-)
+    if result:
+        return result
 
-if result:
-    return result
+    return analyze_title_fallback(title)
 
-print(
-    "[thumbnail] using rule-based title analysis"
-)
-
-return analyze_title_fallback(
-    title
-)
-```
 
 # ============================================================
-
 # FLUX BACKGROUND GENERATION
-
 # ============================================================
 
-def generate_background(
-prompt: str,
-seed: int | None = None,
-):
+def generate_background(prompt: str, seed=None):
 
-```
-if InferenceClient is None:
-    raise RuntimeError(
-        "huggingface_hub is not installed"
+    if InferenceClient is None:
+        raise RuntimeError(
+            "huggingface_hub is not installed"
+        )
+
+    if not HF_TOKEN:
+        raise RuntimeError(
+            "HF_TOKEN is not configured"
+        )
+
+    client = InferenceClient(
+        provider="auto",
+        api_key=HF_TOKEN,
     )
 
-if not HF_TOKEN:
-    raise RuntimeError(
-        "HF_TOKEN is not configured"
-    )
+    try:
 
-if seed is None:
-    seed = random.randint(
-        1,
-        2_147_483_647,
-    )
+        image = client.text_to_image(
+            prompt=prompt,
+            model=FLUX_MODEL,
+            width=GEN_WIDTH,
+            height=GEN_HEIGHT,
+            seed=seed,
+        )
 
-print(
-    f"[thumbnail] generating FLUX background "
-    f"(seed={seed})..."
-)
+    except Exception as first_error:
 
-client = InferenceClient(
-    provider="auto",
-    api_key=HF_TOKEN,
-)
-
-try:
-
-    image = client.text_to_image(
-        prompt=prompt,
-        model=FLUX_MODEL,
-        width=GEN_WIDTH,
-        height=GEN_HEIGHT,
-        seed=seed,
-    )
-
-except Exception as first_error:
-
-    print(
-        (
-            "[thumbnail] FLUX dimension request failed: "
+        print(
+            "[thumbnail] FLUX request with dimensions failed: "
             f"{first_error}"
-        ),
-        file=sys.stderr,
-    )
+        )
 
-    print(
-        "[thumbnail] retrying FLUX without explicit dimensions..."
-    )
+        # Retry with only the required parameters.
+        image = client.text_to_image(
+            prompt=prompt,
+            model=FLUX_MODEL,
+            seed=seed,
+        )
 
-    image = client.text_to_image(
-        prompt=prompt,
-        model=FLUX_MODEL,
-    )
+    if not isinstance(image, Image.Image):
+        raise RuntimeError(
+            "FLUX did not return a PIL image"
+        )
 
-if not isinstance(
-    image,
-    Image.Image,
-):
-    raise RuntimeError(
-        "FLUX did not return a PIL image"
-    )
+    return image
 
-return image.convert("RGB")
-```
 
 # ============================================================
-
 # IMAGE PROCESSING
-
 # ============================================================
 
 def crop_to_cover(
-image: Image.Image,
-width: int,
-height: int,
-):
+    image: Image.Image,
+    width: int,
+    height: int,
+) -> Image.Image:
 
-```
-image = image.convert("RGB")
+    image = image.convert("RGB")
 
-source_ratio = (
-    image.width / image.height
-)
+    src_w, src_h = image.size
 
-target_ratio = (
-    width / height
-)
+    src_ratio = src_w / src_h
+    target_ratio = width / height
 
-if source_ratio > target_ratio:
+    if src_ratio > target_ratio:
 
-    new_height = height
+        new_w = int(src_h * target_ratio)
 
-    new_width = int(
-        height * source_ratio
-    )
+        left = (src_w - new_w) // 2
 
-else:
-
-    new_width = width
-
-    new_height = int(
-        width / source_ratio
-    )
-
-image = image.resize(
-    (
-        new_width,
-        new_height,
-    ),
-    Image.Resampling.LANCZOS,
-)
-
-left = (
-    new_width - width
-) // 2
-
-top = (
-    new_height - height
-) // 2
-
-return image.crop(
-    (
-        left,
-        top,
-        left + width,
-        top + height,
-    )
-)
-```
-
-def cinematic_grade(
-image: Image.Image,
-):
-
-```
-image = image.convert("RGB")
-
-image = ImageEnhance.Contrast(
-    image
-).enhance(1.16)
-
-image = ImageEnhance.Color(
-    image
-).enhance(1.08)
-
-image = ImageEnhance.Sharpness(
-    image
-).enhance(1.15)
-
-return image
-```
-
-def add_vignette(
-image: Image.Image,
-strength: float = 0.28,
-):
-
-```
-width, height = image.size
-
-vignette = Image.new(
-    "L",
-    (
-        width,
-        height,
-    ),
-    255,
-)
-
-pixels = vignette.load()
-
-cx = width / 2
-cy = height / 2
-
-max_radius = math.sqrt(
-    cx * cx + cy * cy
-)
-
-for y in range(height):
-
-    for x in range(width):
-
-        dx = x - cx
-        dy = y - cy
-
-        distance = math.sqrt(
-            dx * dx + dy * dy
-        )
-
-        normalized = min(
-            1.0,
-            distance / max_radius,
-        )
-
-        value = int(
-            255
-            * (
-                1
-                - strength
-                * normalized
-                * normalized
+        image = image.crop(
+            (
+                left,
+                0,
+                left + new_w,
+                src_h,
             )
-        )
-
-        pixels[x, y] = value
-
-return Image.composite(
-    image,
-    Image.new(
-        "RGB",
-        image.size,
-        (0, 0, 0),
-    ),
-    vignette,
-)
-```
-
-def darken_headline_area(
-image: Image.Image,
-side: str = "left",
-):
-
-```
-overlay = Image.new(
-    "RGBA",
-    image.size,
-    (0, 0, 0, 0),
-)
-
-width, height = image.size
-
-pixels = overlay.load()
-
-for x in range(width):
-
-    if side == "left":
-
-        distance = x / max(
-            1,
-            width - 1,
         )
 
     else:
 
-        distance = (
-            width - 1 - x
-        ) / max(
-            1,
-            width - 1,
+        new_h = int(src_w / target_ratio)
+
+        top = (src_h - new_h) // 2
+
+        image = image.crop(
+            (
+                0,
+                top,
+                src_w,
+                top + new_h,
+            )
         )
 
-    alpha = int(
-        155
-        * max(
-            0,
-            1 - distance * 1.7,
-        )
+    return image.resize(
+        (width, height),
+        Image.Resampling.LANCZOS,
+    )
+
+
+def cinematic_grade(
+    image: Image.Image,
+) -> Image.Image:
+
+    image = ImageEnhance.Contrast(
+        image
+    ).enhance(1.16)
+
+    image = ImageEnhance.Color(
+        image
+    ).enhance(1.08)
+
+    image = ImageEnhance.Sharpness(
+        image
+    ).enhance(1.15)
+
+    return image
+
+
+def add_vignette(
+    image: Image.Image,
+    strength: float = 0.28,
+) -> Image.Image:
+
+    image = image.convert("RGB")
+
+    width, height = image.size
+
+    overlay = Image.new(
+        "RGBA",
+        (width, height),
+        (0, 0, 0, 0),
+    )
+
+    pixels = overlay.load()
+
+    center_x = width / 2
+    center_y = height / 2
+
+    max_distance = math.sqrt(
+        center_x ** 2 +
+        center_y ** 2
     )
 
     for y in range(height):
 
-        pixels[x, y] = (
-            0,
-            0,
-            0,
-            alpha,
-        )
+        for x in range(width):
 
-return Image.alpha_composite(
-    image.convert("RGBA"),
-    overlay,
-).convert("RGB")
-```
+            dx = x - center_x
+            dy = y - center_y
+
+            distance = math.sqrt(
+                dx * dx +
+                dy * dy
+            )
+
+            normalized = min(
+                1.0,
+                distance / max_distance,
+            )
+
+            alpha = int(
+                255 *
+                strength *
+                (normalized ** 1.8)
+            )
+
+            pixels[x, y] = (
+                0,
+                0,
+                0,
+                alpha,
+            )
+
+    return Image.alpha_composite(
+        image.convert("RGBA"),
+        overlay,
+    ).convert("RGB")
+
+
+def darken_headline_area(
+    image: Image.Image,
+    side: str,
+) -> Image.Image:
+
+    image = image.convert("RGB")
+
+    width, height = image.size
+
+    overlay = Image.new(
+        "RGBA",
+        (width, height),
+        (0, 0, 0, 0),
+    )
+
+    pixels = overlay.load()
+
+    for y in range(height):
+
+        for x in range(width):
+
+            if side == "left":
+                distance = x / max(
+                    1,
+                    width * 0.58,
+                )
+            else:
+                distance = (
+                    width - x
+                ) / max(
+                    1,
+                    width * 0.58,
+                )
+
+            distance = max(
+                0.0,
+                min(
+                    1.0,
+                    distance,
+                ),
+            )
+
+            alpha = int(
+                155 *
+                (1.0 - distance) ** 1.6
+            )
+
+            pixels[x, y] = (
+                0,
+                0,
+                0,
+                alpha,
+            )
+
+    return Image.alpha_composite(
+        image.convert("RGBA"),
+        overlay,
+    ).convert("RGB")
+
 
 # ============================================================
-
 # FONT HELPERS
-
 # ============================================================
 
 def load_font(size: int):
 
-```
-if FONT_PATH.exists():
+    try:
 
-    return ImageFont.truetype(
-        str(FONT_PATH),
-        size,
-    )
+        if FONT_PATH.exists():
+            return ImageFont.truetype(
+                str(FONT_PATH),
+                size=size,
+            )
 
-candidates = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-]
+    except Exception:
+        pass
 
-for path in candidates:
+    # Fallback to common DejaVu font.
+    fallback_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+    ]
 
-    if os.path.exists(path):
+    for path in fallback_paths:
 
-        return ImageFont.truetype(
-            path,
-            size,
-        )
+        if os.path.exists(path):
 
-return ImageFont.load_default()
-```
+            try:
+                return ImageFont.truetype(
+                    path,
+                    size=size,
+                )
+            except Exception:
+                pass
+
+    return ImageFont.load_default()
+
 
 def text_bbox(
-draw,
-text,
-font,
-stroke_width=0,
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font,
+    stroke_width: int = 0,
 ):
 
-```
-return draw.textbbox(
-    (0, 0),
-    text,
-    font=font,
-    stroke_width=stroke_width,
-)
-```
+    return draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+        stroke_width=stroke_width,
+    )
+
 
 def text_size(
-draw,
-text,
-font,
-stroke_width=0,
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font,
+    stroke_width: int = 0,
 ):
 
-```
-box = text_bbox(
-    draw,
-    text,
-    font,
-    stroke_width,
-)
+    box = text_bbox(
+        draw,
+        text,
+        font,
+        stroke_width,
+    )
 
-return (
-    box[2] - box[0],
-    box[3] - box[1],
-)
-```
+    return (
+        box[2] - box[0],
+        box[3] - box[1],
+    )
+
 
 # ============================================================
-
-# HEADLINE LAYOUT
-
+# HEADLINE WRAPPING
 # ============================================================
 
 def wrap_headline_words(
-words,
-max_chars=16,
-):
-
-```
-if not words:
-    return []
-
-lines = []
-current = []
-
-for word in words:
-
-    proposed = (
-        current + [word]
-    )
-
-    length = len(
-        " ".join(
-            item["text"]
-            for item in proposed
-        )
-    )
-
-    if (
-        current
-        and length > max_chars
-    ):
-
-        lines.append(
-            current
-        )
-
-        current = [word]
-
-    else:
-
-        current = proposed
-
-if current:
-    lines.append(
-        current
-    )
-
-return lines
-```
-
-def fit_headline(
-draw,
-words,
-max_width,
-max_height,
-):
-
-```
-if not words:
-
-    return (
-        [],
-        load_font(70),
-    )
-
-lines = wrap_headline_words(
     words,
     max_chars=18,
-)
-
-for size in range(
-    118,
-    42,
-    -2,
 ):
 
-    font = load_font(
-        size
-    )
+    lines = []
 
-    max_line_width = 0
+    current = []
+    current_length = 0
+
+    for word in words:
+
+        text = word["text"]
+
+        extra = (
+            len(text)
+            if not current
+            else len(text) + 1
+        )
+
+        if (
+            current
+            and current_length + extra > max_chars
+        ):
+
+            lines.append(current)
+
+            current = [word]
+
+            current_length = len(text)
+
+        else:
+
+            current.append(word)
+
+            current_length += extra
+
+    if current:
+        lines.append(current)
+
+    return lines
+
+
+# ============================================================
+# FIT HEADLINE
+# ============================================================
+
+def fit_headline(
+    draw,
+    words,
+    max_width,
+    max_height,
+):
+
+    lines = wrap_headline_words(words)
+
+    for size in range(118, 41, -2):
+
+        font = load_font(size)
+
+        line_sizes = []
+
+        total_height = 0
+        largest_width = 0
+
+        for line in lines:
+
+            text = " ".join(
+                word["text"]
+                for word in line
+            )
+
+            width, height = text_size(
+                draw,
+                text,
+                font,
+                stroke_width=4,
+            )
+
+            line_sizes.append(
+                (width, height)
+            )
+
+            largest_width = max(
+                largest_width,
+                width,
+            )
+
+            total_height += height
+
+        total_height += max(
+            0,
+            len(lines) - 1,
+        ) * 10
+
+        if (
+            largest_width <= max_width
+            and total_height <= max_height
+        ):
+
+            return (
+                lines,
+                font,
+                total_height,
+            )
+
+    font = load_font(42)
+
     total_height = 0
 
     for line in lines:
 
         text = " ".join(
-            item["text"]
-            for item in line
+            word["text"]
+            for word in line
         )
 
-        w, h = text_size(
+        _, height = text_size(
             draw,
             text,
             font,
-            stroke_width=max(
-                2,
-                size // 22,
-            ),
+            stroke_width=4,
         )
 
-        max_line_width = max(
-            max_line_width,
-            w,
-        )
+        total_height += height
 
-        total_height += (
-            h
-            + int(
-                size * 0.08
-            )
-        )
+    return (
+        lines,
+        font,
+        total_height,
+    )
 
-    if (
-        max_line_width <= max_width
-        and total_height <= max_height
-    ):
-
-        return (
-            lines,
-            font,
-        )
-
-return (
-    wrap_headline_words(
-        words,
-        max_chars=14,
-    ),
-    load_font(48),
-)
-```
 
 # ============================================================
-
 # DRAW HEADLINE
-
 # ============================================================
 
 def draw_headline(
-image: Image.Image,
-words,
-side: str = "left",
-):
-
-```
-draw = ImageDraw.Draw(
-    image
-)
-
-max_width = int(
-    image.width * 0.45
-)
-
-max_height = int(
-    image.height * 0.70
-)
-
-lines, font = fit_headline(
-    draw,
+    image: Image.Image,
     words,
-    max_width,
-    max_height,
-)
-
-if side == "left":
-
-    x = int(
-        image.width * 0.055
-    )
-
-else:
-
-    x = int(
-        image.width * 0.52
-    )
-
-y = int(
-    image.height * 0.18
-)
-
-stroke_width = max(
-    3,
-    font.size // 22,
-)
-
-line_gap = int(
-    font.size * 0.10
-)
-
-for line in lines:
-
-    widths = []
-
-    for item in line:
-
-        w, _ = text_size(
-            draw,
-            item["text"],
-            font,
-            stroke_width,
-        )
-
-        widths.append(w)
-
-    spacing = int(
-        font.size * 0.13
-    )
-
-    current_x = x
-
-    for index, item in enumerate(
-        line
-    ):
-
-        color = COLORS.get(
-            item["color"],
-            COLORS["white"],
-        )
-
-        draw.text(
-            (
-                current_x,
-                y,
-            ),
-            item["text"],
-            font=font,
-            fill=color,
-            stroke_width=stroke_width,
-            stroke_fill=OUTLINE_COLOR,
-        )
-
-        current_x += (
-            widths[index]
-            + spacing
-        )
-
-    line_height = int(
-        font.size * 0.88
-    )
-
-    y += (
-        line_height
-        + line_gap
-    )
-
-return image
-```
-
-# ============================================================
-
-# CATEGORY LABEL
-
-# ============================================================
-
-def draw_category_label(
-image: Image.Image,
-label: str,
+    side="left",
 ):
 
-```
-if not label:
-    return image
-
-draw = ImageDraw.Draw(
-    image
-)
-
-font = load_font(27)
-
-padding_x = 18
-padding_y = 9
-
-text_w, text_h = text_size(
-    draw,
-    label,
-    font,
-)
-
-x = 36
-y = 30
-
-rect = (
-    x,
-    y,
-    x + text_w + padding_x * 2,
-    y + text_h + padding_y * 2,
-)
-
-draw.rounded_rectangle(
-    rect,
-    radius=6,
-    fill=COLORS["red"],
-)
-
-draw.text(
-    (
-        x + padding_x,
-        y + padding_y - 2,
-    ),
-    label,
-    font=font,
-    fill=COLORS["white"],
-)
-
-return image
-```
-
-# ============================================================
-
-# LOGO
-
-# ============================================================
-
-def draw_logo(
-image: Image.Image,
-):
-
-```
-if not LOGO_PATH.exists():
-
-    print(
-        f"[thumbnail] logo not found: {LOGO_PATH}",
-        file=sys.stderr,
-    )
-
-    return image
-
-try:
-
-    logo = Image.open(
-        LOGO_PATH
-    ).convert("RGBA")
+    draw = ImageDraw.Draw(image)
 
     max_width = int(
-        image.width * 0.18
+        OUT_WIDTH * 0.45
     )
 
     max_height = int(
-        image.height * 0.12
+        OUT_HEIGHT * 0.70
     )
 
-    logo.thumbnail(
-        (
-            max_width,
-            max_height,
-        ),
-        Image.Resampling.LANCZOS,
+    lines, font, total_height = fit_headline(
+        draw,
+        words,
+        max_width,
+        max_height,
     )
 
-    margin = 28
-
-    x = (
-        image.width
-        - logo.width
-        - margin
+    x_padding = int(
+        OUT_WIDTH * 0.055
     )
 
-    y = (
-        image.height
-        - logo.height
-        - margin
+    if side == "left":
+        x = x_padding
+    else:
+        x = OUT_WIDTH - x_padding - max_width
+
+    y = int(
+        (OUT_HEIGHT - total_height) / 2
     )
 
-    image = image.convert(
-        "RGBA"
+    stroke_width = max(
+        3,
+        int(font.size * 0.035),
     )
 
-    image.alpha_composite(
-        logo,
-        (
-            x,
-            y,
-        ),
-    )
+    line_gap = 10
 
-    return image.convert(
-        "RGB"
-    )
+    for line in lines:
 
-except Exception as err:
+        total_line_width = 0
 
-    print(
-        f"[thumbnail] logo error: {err}",
-        file=sys.stderr,
-    )
+        for word in line:
 
-    return image
-```
+            width, _ = text_size(
+                draw,
+                word["text"],
+                font,
+                stroke_width=stroke_width,
+            )
+
+            total_line_width += width
+
+        total_line_width += (
+            max(
+                0,
+                len(line) - 1,
+            )
+            * 10
+        )
+
+        current_x = x
+
+        if side == "right":
+
+            current_x = (
+                OUT_WIDTH
+                - x_padding
+                - total_line_width
+            )
+
+        for word in line:
+
+            text = word["text"]
+
+            color = COLORS.get(
+                word.get(
+                    "color",
+                    "white",
+                ),
+                COLORS["white"],
+            )
+
+            draw.text(
+                (
+                    current_x,
+                    y,
+                ),
+                text,
+                font=font,
+                fill=color,
+                stroke_width=stroke_width,
+                stroke_fill=OUTLINE_COLOR,
+            )
+
+            width, _ = text_size(
+                draw,
+                text,
+                font,
+                stroke_width=stroke_width,
+            )
+
+            current_x += width + 10
+
+        y += (
+            font.size +
+            line_gap
+        )
+
 
 # ============================================================
+# CATEGORY LABEL
+# ============================================================
 
-# COMPOSITION
+def draw_category_label(
+    image: Image.Image,
+    label: str,
+):
 
+    draw = ImageDraw.Draw(image)
+
+    font = load_font(27)
+
+    padding_x = 18
+    padding_y = 9
+
+    text_width, text_height = text_size(
+        draw,
+        label,
+        font,
+    )
+
+    x = 30
+    y = 26
+
+    box = (
+        x,
+        y,
+        x +
+        text_width +
+        padding_x * 2,
+        y +
+        text_height +
+        padding_y * 2,
+    )
+
+    radius = 8
+
+    draw.rounded_rectangle(
+        box,
+        radius=radius,
+        fill=COLORS["red"],
+    )
+
+    draw.text(
+        (
+            x + padding_x,
+            y + padding_y - 2,
+        ),
+        label,
+        font=font,
+        fill=COLORS["white"],
+    )
+
+
+# ============================================================
+# LOGO
+# ============================================================
+
+def draw_logo(
+    image: Image.Image,
+):
+
+    if not LOGO_PATH.exists():
+        print(
+            f"[thumbnail] logo not found: {LOGO_PATH}"
+        )
+        return
+
+    try:
+
+        logo = Image.open(
+            LOGO_PATH
+        ).convert("RGBA")
+
+        max_width = int(
+            OUT_WIDTH * 0.18
+        )
+
+        max_height = int(
+            OUT_HEIGHT * 0.12
+        )
+
+        logo.thumbnail(
+            (
+                max_width,
+                max_height,
+            ),
+            Image.Resampling.LANCZOS,
+        )
+
+        margin = 28
+
+        x = (
+            OUT_WIDTH
+            - logo.width
+            - margin
+        )
+
+        y = (
+            OUT_HEIGHT
+            - logo.height
+            - margin
+        )
+
+        image.paste(
+            logo,
+            (
+                x,
+                y,
+            ),
+            logo,
+        )
+
+    except Exception as exc:
+
+        print(
+            f"[thumbnail] logo rendering failed: {exc}"
+        )
+
+
+# ============================================================
+# LAYOUT
 # ============================================================
 
 def choose_layout(
-variation_index: int,
+    index: int,
 ):
 
-```
-layouts = [
-    {
-        "headline_side": "left",
-    },
-    {
-        "headline_side": "right",
-    },
-    {
-        "headline_side": "left",
-    },
-]
+    # Alternate the headline side.
+    layouts = [
+        "left",
+        "right",
+        "left",
+    ]
 
-return layouts[
-    variation_index
-    % len(layouts)
-]
-```
+    return layouts[
+        index % len(layouts)
+    ]
+
+
+# ============================================================
+# COMPOSE FINAL THUMBNAIL
+# ============================================================
 
 def compose_thumbnail(
-background: Image.Image,
-analysis: dict,
-variation_index: int,
+    background: Image.Image,
+    analysis: dict,
+    variation_index: int,
 ):
 
-```
-layout = choose_layout(
-    variation_index
-)
+    image = crop_to_cover(
+        background,
+        OUT_WIDTH,
+        OUT_HEIGHT,
+    )
 
-headline_side = layout[
-    "headline_side"
-]
+    image = cinematic_grade(
+        image
+    )
 
-image = crop_to_cover(
-    background,
-    OUT_WIDTH,
-    OUT_HEIGHT,
-)
+    side = choose_layout(
+        variation_index
+    )
 
-image = cinematic_grade(
-    image
-)
+    image = darken_headline_area(
+        image,
+        side,
+    )
 
-image = darken_headline_area(
-    image,
-    side=headline_side,
-)
+    image = add_vignette(
+        image,
+        strength=0.28,
+    )
 
-image = add_vignette(
-    image,
-    strength=0.28,
-)
+    draw_category_label(
+        image,
+        analysis.get(
+            "category_label",
+            "WORLD",
+        ),
+    )
 
-image = draw_category_label(
-    image,
-    analysis.get(
-        "category_label",
-        "",
-    ),
-)
-
-image = draw_headline(
-    image,
-    analysis.get(
+    words = analysis.get(
         "words",
         [],
-    ),
-    side=headline_side,
-)
+    )
 
-image = draw_logo(
-    image
-)
+    if words:
 
-return image
-```
+        draw_headline(
+            image,
+            words,
+            side=side,
+        )
 
-# ============================================================
+    draw_logo(
+        image
+    )
 
-# SAVE
+    return image
 
-# ============================================================
-
-def save_thumbnail(
-image: Image.Image,
-path: Path,
-):
-
-```
-path.parent.mkdir(
-    parents=True,
-    exist_ok=True,
-)
-
-image = image.convert(
-    "RGB"
-)
-
-image.save(
-    path,
-    "JPEG",
-    quality=95,
-    optimize=True,
-    progressive=True,
-)
-
-print(
-    f"[thumbnail] saved: {path}"
-)
-```
 
 # ============================================================
-
 # MAIN
-
 # ============================================================
 
 def main():
 
-```
-parser = argparse.ArgumentParser(
-    description=(
-        "Generate premium NEXT SCENE TV thumbnails"
-    )
-)
-
-parser.add_argument(
-    "--title",
-    required=True,
-    help=(
-        "Video title exactly as it should be analyzed"
-    ),
-)
-
-parser.add_argument(
-    "--variations",
-    type=int,
-    default=1,
-    help=(
-        "Number of thumbnail variations"
-    ),
-)
-
-parser.add_argument(
-    "--out-dir",
-    required=True,
-    help=(
-        "Output directory"
-    ),
-)
-
-parser.add_argument(
-    "--style",
-    default=None,
-    help=(
-        "Optional additional style hint"
-    ),
-)
-
-args = parser.parse_args()
-
-title = args.title.strip()
-
-if not title:
-
-    raise RuntimeError(
-        "Title cannot be empty"
-    )
-
-variations = max(
-    1,
-    int(args.variations),
-)
-
-out_dir = Path(
-    args.out_dir
-)
-
-out_dir.mkdir(
-    parents=True,
-    exist_ok=True,
-)
-
-# --------------------------------------------------------
-# TITLE ANALYSIS
-# --------------------------------------------------------
-
-analysis = analyze_title(
-    title
-)
-
-# --------------------------------------------------------
-# OPTIONAL STYLE
-# --------------------------------------------------------
-
-image_prompt = analysis[
-    "image_prompt"
-]
-
-if args.style:
-
-    image_prompt = (
-        f"{image_prompt}. "
-        f"Additional style direction: {args.style}."
-    )
-
-# Absolute protection against text
-# appearing in generated background.
-
-image_prompt = (
-    f"{image_prompt}. "
-    "The image must contain absolutely no text, "
-    "words, letters, numbers, logos, watermarks, "
-    "captions, labels or typography."
-)
-
-print(
-    "[thumbnail] category:",
-    analysis.get(
-        "category",
-        "other",
-    ),
-)
-
-print(
-    "[thumbnail] headline:",
-    " ".join(
-        w["text"]
-        for w in analysis.get(
-            "words",
-            [],
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate NEXT SCENE TV "
+            "premium thumbnails"
         )
-    ),
-)
+    )
 
-# --------------------------------------------------------
-# GENERATE VARIATIONS
-# --------------------------------------------------------
+    parser.add_argument(
+        "--title",
+        required=True,
+        help="Video title",
+    )
 
-for i in range(
-    variations
-):
+    parser.add_argument(
+        "--variations",
+        type=int,
+        default=1,
+        help="Number of thumbnail variations",
+    )
+
+    parser.add_argument(
+        "--out-dir",
+        default="thumbnail-output",
+        help="Output directory",
+    )
+
+    parser.add_argument(
+        "--style",
+        default="",
+        help="Optional additional visual style hint",
+    )
+
+    args = parser.parse_args()
+
+    title = args.title.strip()
+
+    if not title:
+        raise SystemExit(
+            "Title cannot be empty."
+        )
+
+    variations = max(
+        1,
+        min(
+            args.variations,
+            10,
+        ),
+    )
+
+    out_dir = Path(
+        args.out_dir
+    )
+
+    out_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     print(
-        (
-            f"[thumbnail] variation "
-            f"{i + 1}/{variations}"
+        "[thumbnail] ======================================="
+    )
+
+    print(
+        "[thumbnail] NEXT SCENE TV Thumbnail Generator"
+    )
+
+    print(
+        "[thumbnail] ======================================="
+    )
+
+    print(
+        f"[thumbnail] title: {title}"
+    )
+
+    if args.style:
+        print(
+            f"[thumbnail] extra style: {args.style}"
+        )
+
+    # --------------------------------------------------------
+    # GEMINI
+    # --------------------------------------------------------
+
+    analysis = analyze_title(
+        title
+    )
+
+    # Add optional style hint.
+    if args.style:
+
+        analysis["image_prompt"] += (
+            "\n\nAdditional visual direction: "
+            f"{args.style}"
+        )
+
+    # Force no-text rule again.
+    analysis["image_prompt"] += (
+        "\n\nABSOLUTE RULE: "
+        "The generated image itself must contain "
+        "NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, "
+        "NO LOGOS, NO WATERMARKS, NO CAPTIONS, "
+        "NO LABELS and NO TYPOGRAPHY."
+    )
+
+    print(
+        "[thumbnail] category: "
+        f"{analysis.get('category', 'other')}"
+    )
+
+    print(
+        "[thumbnail] label: "
+        f"{analysis.get('category_label', 'WORLD')}"
+    )
+
+    print(
+        "[thumbnail] headline: "
+        + " ".join(
+            word["text"]
+            for word in analysis.get(
+                "words",
+                [],
+            )
         )
     )
 
-    seed = (
-        int(
-            time.time()
-            * 1000
-        )
-        + i * 7919
-    ) % 2_147_483_647
+    # --------------------------------------------------------
+    # GENERATE VARIATIONS
+    # --------------------------------------------------------
 
-    try:
-
-        background = generate_background(
-            image_prompt,
-            seed=seed,
-        )
-
-        final_image = compose_thumbnail(
-            background,
-            analysis,
-            i,
-        )
-
-        output_path = (
-            out_dir
-            / f"thumbnail_{i + 1:02d}.jpg"
-        )
-
-        save_thumbnail(
-            final_image,
-            output_path,
-        )
-
-    except Exception as err:
+    for index in range(variations):
 
         print(
-            (
-                f"[thumbnail] variation "
-                f"{i + 1} failed: {err}"
-            ),
-            file=sys.stderr,
+            f"[thumbnail] generating variation "
+            f"{index + 1}/{variations}"
         )
 
-        traceback.print_exc()
+        # Different seed for every variation.
+        seed = (
+            int(time.time() * 1000)
+            + index
+            + random.randint(
+                0,
+                999999,
+            )
+        )
 
-print(
-    "[thumbnail] generation complete."
-)
-```
+        try:
 
-if **name** == "**main**":
-main()
+            background = generate_background(
+                analysis["image_prompt"],
+                seed=seed,
+            )
+
+            final_image = compose_thumbnail(
+                background,
+                analysis,
+                index,
+            )
+
+            output_path = (
+                out_dir /
+                f"thumbnail_{index + 1:02d}.jpg"
+            )
+
+            final_image.save(
+                output_path,
+                "JPEG",
+                quality=95,
+                optimize=True,
+                progressive=True,
+            )
+
+            print(
+                "[thumbnail] saved: "
+                f"{output_path}"
+            )
+
+        except Exception as exc:
+
+            print(
+                "[thumbnail] variation "
+                f"{index + 1} failed: {exc}"
+            )
+
+            traceback.print_exc()
+
+    print(
+        "[thumbnail] ======================================="
+    )
+
+    print(
+        "[thumbnail] generation complete"
+    )
+
+    print(
+        "[thumbnail] ======================================="
+    )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    main()
