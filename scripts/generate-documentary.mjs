@@ -1,4 +1,4 @@
-```javascript
+
 // Main pipeline: topic -> documentary script (Gemini) -> human-sounding
 // narration with exact timing (msedge-tts) -> real video clips/photos per
 // segment (Pexels/Unsplash) -> assembled synced video (ffmpeg) -> uploaded
