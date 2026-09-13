@@ -14,7 +14,6 @@ import {
   getDailyBreakingCount,
   incrementDailyBreakingCount,
   DAILY_PACED_LIMIT,
-  expectedPacedSlotsByNow,
   type StoredArticle,
 } from "@/lib/store";
 import { postToFacebook } from "@/lib/social/facebook";
@@ -30,9 +29,10 @@ import { postToX } from "@/lib/social/x";
 
 const MAX_POSTS_PER_RUN = 3;
 
-// DAILY_PACED_LIMIT and expectedPacedSlotsByNow() now live in lib/store.ts
-// so they're shared with the Facebook-webhook pipeline (app/api/social/
-// next-article/route.ts), which draws from the same daily paced budget.
+// DAILY_PACED_LIMIT is a daily cap shared with the Facebook-webhook
+// pipeline. Normal posts are no longer hourly-paced; they may use any
+// remaining part of the 15-post daily budget. Breaking posts bypass the
+// cap completely.
 
 // Vision-verifying candidate photos takes time because each candidate may
 // require an image download + Gemini verification call.
@@ -59,15 +59,16 @@ export async function GET(req: NextRequest) {
   const pacedPostedToday = await getDailyPacedCount();
   const breakingPostedToday = await getDailyBreakingCount();
 
-  // Determine how many non-breaking slots this run can use.
-  let pacedSlotsLeftThisRun = Math.max(
+  // Hard daily cap only. There is intentionally no hourly pacing calculation.
+  const pacedSlotsLeftThisRun = Math.max(
     0,
     Math.min(
       MAX_POSTS_PER_RUN,
-      expectedPacedSlotsByNow() - pacedPostedToday,
       DAILY_PACED_LIMIT - pacedPostedToday
     )
   );
+
+  let remainingPacedSlots = pacedSlotsLeftThisRun;
 
   const existing = await loadArticles();
 
@@ -121,17 +122,9 @@ export async function GET(req: NextRequest) {
 
   for (const rawArticle of freshRaw) {
     try {
-      // ---------------------------------------------------------------
-      // 1. Read the original article page
-      // ---------------------------------------------------------------
-
       const pageData = await fetchArticlePage(
         rawArticle.link
       );
-
-      // ---------------------------------------------------------------
-      // 2. Rewrite + extract entities + photo intelligence
-      // ---------------------------------------------------------------
 
       const rewritten = await rewriteArticle(
         rawArticle,
@@ -141,13 +134,11 @@ export async function GET(req: NextRequest) {
       const isBreaking =
         rewritten.importance === "breaking";
 
-      // ---------------------------------------------------------------
-      // 3. Respect the daily pacing system
-      // ---------------------------------------------------------------
-
+      // Breaking news bypasses the daily normal-post cap.
+      // Normal stories use only the remaining 15/day budget.
       if (
         !isBreaking &&
-        pacedSlotsLeftThisRun <= 0
+        remainingPacedSlots <= 0
       ) {
         skippedForPacing.push(
           rewritten.headline
@@ -155,10 +146,6 @@ export async function GET(req: NextRequest) {
 
         continue;
       }
-
-      // ---------------------------------------------------------------
-      // 4. Try the ORIGINAL article photograph first
-      // ---------------------------------------------------------------
 
       const realPhotoUrl =
         rawArticle.realImageUrl ??
@@ -178,14 +165,6 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      // ---------------------------------------------------------------
-      // 5. If the original image fails, use the upgraded photo engine
-      //
-      // IMPORTANT:
-      // photoSearchQueries and photoNeedsCurrentEvent come from the
-      // upgraded lib/ai.ts.
-      // ---------------------------------------------------------------
-
       if (!photo) {
         photo = await findMatchingPhoto(
           rewritten.photoSearchTerms,
@@ -196,18 +175,10 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      // ---------------------------------------------------------------
-      // 6. Generate article ID
-      // ---------------------------------------------------------------
-
       const id = crypto.randomUUID();
 
       const ownArticleUrl =
         `${siteUrl}/article/${id}`;
-
-      // ---------------------------------------------------------------
-      // 7. If no verified photograph exists, use VOX254 fallback
-      // ---------------------------------------------------------------
 
       if (!photo.url) {
         photo = {
@@ -218,10 +189,6 @@ export async function GET(req: NextRequest) {
           credit: "VOX254",
         };
       }
-
-      // ---------------------------------------------------------------
-      // 8. Build stored article
-      // ---------------------------------------------------------------
 
       const stored: StoredArticle = {
         id,
@@ -237,16 +204,8 @@ export async function GET(req: NextRequest) {
         ...rewritten,
       };
 
-      // ---------------------------------------------------------------
-      // 9. Generate social image
-      // ---------------------------------------------------------------
-
       const socialImageUrl =
         `${siteUrl}/api/og/${id}`;
-
-      // ---------------------------------------------------------------
-      // 10. Facebook
-      // ---------------------------------------------------------------
 
       try {
         await postToFacebook(
@@ -272,10 +231,6 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      // ---------------------------------------------------------------
-      // 11. Instagram
-      // ---------------------------------------------------------------
-
       try {
         await postToInstagram(
           socialImageUrl,
@@ -299,10 +254,6 @@ export async function GET(req: NextRequest) {
           `"${stored.headline}" - Instagram: ${message}`
         );
       }
-
-      // ---------------------------------------------------------------
-      // 12. X
-      // ---------------------------------------------------------------
 
       try {
         await postToX(
@@ -328,27 +279,14 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      // ---------------------------------------------------------------
-      // 13. Save article
-      // ---------------------------------------------------------------
-
       await addArticle(stored);
-
-      // ---------------------------------------------------------------
-      // 14. Update daily counters
-      // ---------------------------------------------------------------
 
       if (isBreaking) {
         await incrementDailyBreakingCount();
       } else {
         await incrementDailyPacedCount();
-
-        pacedSlotsLeftThisRun -= 1;
+        remainingPacedSlots -= 1;
       }
-
-      // ---------------------------------------------------------------
-      // 15. Record successful processing
-      // ---------------------------------------------------------------
 
       results.push({
         headline: stored.headline,
@@ -372,10 +310,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ---------------------------------------------------------------
-  // Final counters
-  // ---------------------------------------------------------------
-
   const newPacedCount =
     results.filter(
       (r) => r.importance !== "breaking"
@@ -388,26 +322,16 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     rawFeedItemsFound: raw.length,
-
-    newItemsAfterDedup:
-      freshRaw.length,
-
-    processed:
-      results.length,
-
+    newItemsAfterDedup: freshRaw.length,
+    processed: results.length,
     skippedForPacing,
-
     pacedPostedToday:
       pacedPostedToday + newPacedCount,
-
     pacedDailyLimit:
       DAILY_PACED_LIMIT,
-
     breakingPostedToday:
       breakingPostedToday + newBreakingCount,
-
     results,
-
     errors,
   });
 }
