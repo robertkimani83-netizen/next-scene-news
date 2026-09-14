@@ -3,6 +3,7 @@ import {
   loadArticles,
   getDailyPacedCount,
   DAILY_PACED_LIMIT,
+  areLikelyDuplicateHeadlines,
 } from '@/lib/store';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
@@ -12,24 +13,18 @@ const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   'https://next-scene-news-897q.vercel.app';
 
-// Change this whenever the OG card design/rendering changes so Facebook/Make
-// receives a fresh image URL instead of reusing an older cached card.
-const OG_CARD_VERSION = '3';
+// Bump whenever the OG renderer changes. Facebook/Make then receives a new
+// image URL instead of reusing an older cached card.
+const OG_CARD_VERSION = '4';
 
 async function isPosted(id: string): Promise<boolean> {
   if (!REDIS_URL || !REDIS_TOKEN) return false;
 
   try {
-    const res = await fetch(
-      `${REDIS_URL}/get/facebook-posted:${id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${REDIS_TOKEN}`,
-        },
-        cache: 'no-store',
-      }
-    );
-
+    const res = await fetch(`${REDIS_URL}/get/facebook-posted:${id}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      cache: 'no-store',
+    });
     const data = await res.json();
     return !!data.result;
   } catch {
@@ -41,16 +36,10 @@ async function isClaimed(id: string): Promise<boolean> {
   if (!REDIS_URL || !REDIS_TOKEN) return false;
 
   try {
-    const res = await fetch(
-      `${REDIS_URL}/get/facebook-claim:${id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${REDIS_TOKEN}`,
-        },
-        cache: 'no-store',
-      }
-    );
-
+    const res = await fetch(`${REDIS_URL}/get/facebook-claim:${id}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      cache: 'no-store',
+    });
     const data = await res.json();
     return !!data.result;
   } catch {
@@ -61,17 +50,10 @@ async function isClaimed(id: string): Promise<boolean> {
 async function claimArticle(id: string): Promise<void> {
   if (!REDIS_URL || !REDIS_TOKEN) return;
 
-  // Claim expires after 30 minutes so a crashed GitHub run
-  // cannot permanently lock an article.
-  await fetch(
-    `${REDIS_URL}/set/facebook-claim:${id}/1/EX/1800`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${REDIS_TOKEN}`,
-      },
-    }
-  );
+  await fetch(`${REDIS_URL}/set/facebook-claim:${id}/1/EX/1800`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+  });
 }
 
 async function hasValidCard(imageUrl: string): Promise<boolean> {
@@ -83,27 +65,19 @@ async function hasValidCard(imageUrl: string): Promise<boolean> {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal,
-      headers: {
-        Accept: 'image/png,image/jpeg,image/webp,image/*',
-      },
+      headers: { Accept: 'image/jpeg,image/png,image/webp,image/*' },
     });
 
     clearTimeout(timeout);
 
     if (!res.ok) {
-      console.error(
-        `Facebook card validation failed: HTTP ${res.status} ${imageUrl}`
-      );
+      console.error(`Facebook card validation failed: HTTP ${res.status} ${imageUrl}`);
       return false;
     }
 
-    const contentType =
-      res.headers.get('content-type')?.toLowerCase() || '';
-
+    const contentType = res.headers.get('content-type')?.toLowerCase() || '';
     if (!contentType.startsWith('image/')) {
-      console.error(
-        `Facebook card validation failed: invalid content-type "${contentType}"`
-      );
+      console.error(`Facebook card validation failed: invalid content-type "${contentType}"`);
       return false;
     }
 
@@ -118,40 +92,55 @@ export async function GET() {
   try {
     const articles = await loadArticles();
     const pacedPostedToday = await getDailyPacedCount();
-
-    // Normal Facebook posts have a hard maximum of 15 per Kenyan day.
-    // They are no longer spread out by an hourly pacing formula, which
-    // prevents unnecessary multi-hour gaps when eligible stories exist.
-    // Breaking-news articles bypass this limit completely.
     const dailyCapReached = pacedPostedToday >= DAILY_PACED_LIMIT;
+
+    // Newest articles are first. Once one headline represents an event, do
+    // not release another substantially identical rewrite from another RSS
+    // source to Facebook.
+    const seenHeadlines: string[] = [];
 
     for (const article of articles) {
       if (await isPosted(article.id)) continue;
       if (await isClaimed(article.id)) continue;
 
-      const isBreaking = article.importance === 'breaking';
+      // Protect against the older direct Facebook publisher as well. If an
+      // article was already marked posted in the persistent article store,
+      // the Make publisher must never publish it a second time.
+      if (article.postedTo?.facebook) continue;
 
+      const isBreaking = article.importance === 'breaking';
       if (!isBreaking && dailyCapReached) continue;
 
-      // The version query deliberately changes the image URL after a card
-      // rendering change. This prevents Facebook/Make from reusing the old
-      // blank/incorrect card for an article that has not been posted yet.
-      const imageUrl = `${SITE_URL}/api/og/${article.id}?v=${OG_CARD_VERSION}`;
+      if (seenHeadlines.some((headline) => areLikelyDuplicateHeadlines(headline, article.headline))) {
+        console.log(`Skipping duplicate Facebook story: ${article.headline}`);
+        continue;
+      }
+      seenHeadlines.push(article.headline);
 
-      // The website itself is the gatekeeper. If the branded card cannot
-      // be generated and returned as an actual image, this article is NOT
-      // released to Make/Facebook.
-      const validCard = await hasValidCard(imageUrl);
+      // Facebook cards are never allowed to be blank/gradient-only. The
+      // article must have a real stored photo or an honest contextual file
+      // photo before it enters the Make/Facebook pipeline.
+      const hasStoredPhoto = Boolean(
+        (article.photo?.url && !article.photo.url.includes('/api/og/')) ||
+        article.photo?.softBackgroundUrl
+      );
 
-      if (!validCard) {
-        console.log(
-          `Skipping "${article.headline}" because its Facebook card is invalid.`
-        );
+      if (!hasStoredPhoto) {
+        console.log(`Skipping "${article.headline}" because it has no usable photo.`);
         continue;
       }
 
-      // Do NOT mark the article as posted here and do NOT increment the
-      // daily counter here. Those happen only after Make/Facebook succeeds.
+      const imageUrl = `${SITE_URL}/api/og/${article.id}?v=${OG_CARD_VERSION}`;
+
+      // Website-level image validation is the release gate.
+      const validCard = await hasValidCard(imageUrl);
+      if (!validCard) {
+        console.log(`Skipping "${article.headline}" because its Facebook card is invalid.`);
+        continue;
+      }
+
+      // Do NOT mark posted or increment the daily counter here. Confirmation
+      // happens only after Make accepts the Facebook post.
       await claimArticle(article.id);
 
       return NextResponse.json({
@@ -176,15 +165,11 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { error: 'No unposted articles with a valid Facebook card found' },
+      { error: 'No unposted articles with a unique story and valid photo found' },
       { status: 404 }
     );
   } catch (err: any) {
     console.error('next-article error:', err);
-
-    return NextResponse.json(
-      { error: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
