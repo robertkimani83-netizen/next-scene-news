@@ -65,7 +65,8 @@ async function postToFacebook(article) {
   const res = await fetch(MAKE_WEBHOOK_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      // CHANGED: Appended '; charset=utf-8' to explicitly enforce proper Unicode transfer
+      'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify(body),
   });
