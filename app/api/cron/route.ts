@@ -35,10 +35,7 @@ export async function GET(req: NextRequest) {
     auth?.replace("Bearer ", "") ?? querySecret;
 
   if (providedSecret !== process.env.CRON_SECRET) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const siteUrl =
@@ -53,7 +50,6 @@ export async function GET(req: NextRequest) {
   const usedPhotoUrls = getUsedPhotoUrls(existing);
 
   const raw = await fetchAllFeeds();
-
   const candidates = raw.filter((a) => !existingLinks.has(a.link));
 
   // Shuffle the RSS candidates so one source does not always dominate.
@@ -80,7 +76,6 @@ export async function GET(req: NextRequest) {
     try {
       const pageData = await fetchArticlePage(rawArticle.link);
       const rewritten = await rewriteArticle(rawArticle, pageData.bodyText);
-      const isBreaking = rewritten.importance === "breaking";
 
       // Cross-source duplicate protection: the same event often appears
       // under different URLs on Kenyans.co.ke, AllAfrica and Nairobi Wire.
@@ -122,28 +117,19 @@ export async function GET(req: NextRequest) {
       const photoUrl = photo?.url || photo?.softBackgroundUrl || "";
       if (!photoUrl || usedPhotoUrls.has(photoUrl)) {
         skippedNoPhoto.push(rewritten.headline);
-        console.log(
-          `Skipping "${rewritten.headline}" because no unused verified photo is available.`
-        );
+        console.log(`Skipping "${rewritten.headline}" because no unused verified photo is available.`);
         continue;
       }
 
       const id = crypto.randomUUID();
       const ownArticleUrl = `${siteUrl}/article/${id}`;
 
-      const storedPhoto: MatchedPhoto = photo.url
-        ? photo
-        : {
-            ...photo,
-            url: photoUrl,
-          };
-
       const stored: StoredArticle = {
         id,
         link: rawArticle.link,
         sourceName: rawArticle.sourceName,
         publishedAt: rawArticle.publishedAt,
-        photo: storedPhoto,
+        photo,
         postedTo: {
           // Facebook is intentionally false here. GitHub/Make is the sole
           // Facebook publisher and will confirm it after Facebook succeeds.
