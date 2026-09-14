@@ -1,3 +1,20 @@
+// Function to convert Gemini's stylized faux-Unicode bold/italic text into normal clean text
+function normalizeUnicodeText(text) {
+  if (!text) return "";
+  return text
+    // Bold Serif (e.g., 𝐐, 𝐚)
+    .replace(/[\uD835][\uDC00-\uDC33]/g, m => String.fromCharCode(m.charCodeAt(0) * 0x400 + m.charCodeAt(1) - 0x35400 + 65))
+    .replace(/[\uD835][\uDC34-\uDC67]/g, m => String.fromCharCode(m.charCodeAt(0) * 0x400 + m.charCodeAt(1) - 0x35434 + 97))
+    // Bold Sans-Serif (e.g., 𝝠, 𝝥 / 𝗔, 𝗮)
+    .replace(/[\uD835][\uDFEC-\uE01F]/g, m => String.fromCharCode(m.charCodeAt(0) * 0x400 + m.charCodeAt(1) - 0x35FEC + 65))
+    .replace(/[\uD835][\uE020-\uE053]/g, m => String.fromCharCode(m.charCodeAt(0) * 0x400 + m.charCodeAt(1) - 0x36020 + 97))
+    // Monospace / Alternative blocks (e.g., 𝖳, 𝗁)
+    .replace(/[\uD835][\uDDE2-\uDE1B]/g, m => String.fromCharCode(m.charCodeAt(0) * 0x400 + m.charCodeAt(1) - 0x35DE2 + 65))
+    .replace(/[\uD835][\uDE1C-\uDE55]/g, m => String.fromCharCode(m.charCodeAt(0) * 0x400 + m.charCodeAt(1) - 0x35DE2 + 97))
+    // Direct fallbacks for remaining complex multi-byte characters
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, ""); 
+}
 const SITE_URL = process.env.SITE_URL;
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL;
 const CRON_SECRET = process.env.CRON_SECRET;
