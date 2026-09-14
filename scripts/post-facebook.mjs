@@ -65,7 +65,7 @@ async function postToFacebook(article) {
   const res = await fetch(MAKE_WEBHOOK_URL, {
     method: 'POST',
     headers: {
-      // CHANGED: Appended '; charset=utf-8' to explicitly enforce proper Unicode transfer
+      // FIX: Added explicit UTF-8 charset to headers to enforce clean payload serialization
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify(body),
@@ -103,7 +103,8 @@ async function confirmFacebookPost(id) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${CRON_SECRET}`,
-        'Content-Type': 'application/json',
+        // FIX: Enforced UTF-8 charset matching rules for consistency
+        'Content-Type': 'application/json; charset=utf-8',
       },
       body: JSON.stringify({ id }),
     }
@@ -143,7 +144,7 @@ async function releaseClaim(id) {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${CRON_SECRET}`,
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
         },
         body: JSON.stringify({ id }),
       }
