@@ -3,9 +3,8 @@ import type { MatchedPhoto } from "./photos";
 
 // Uses Upstash Redis's free REST API instead of a local file. Vercel's
 // servers reset their filesystem on every request, so a JSON file (the
-// original approach) can never actually persist - this fixes that with
-// a real (and still free, no-card) database.
-// Get credentials at https://console.upstash.com (Create Database -> REST API section).
+// original approach) can never actually persist - this fixes that with a
+// real (and still free, no-card) database.
 
 export interface StoredArticle extends RewrittenArticle {
   id: string;
@@ -57,30 +56,89 @@ export async function loadArticles(): Promise<StoredArticle[]> {
   return redisGet();
 }
 
+function normalizeHeadlineWords(value: string): string[] {
+  const stopWords = new Set([
+    "the", "a", "an", "and", "or", "of", "to", "in", "on", "for",
+    "with", "as", "at", "by", "from", "into", "over", "after", "before",
+    "is", "are", "was", "were", "has", "have", "had", "will", "can",
+    "new", "says", "say", "report", "reports", "latest", "update", "kenya",
+  ]);
+
+  return Array.from(
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .filter((word) => word.length >= 3 && !stopWords.has(word))
+    )
+  );
+}
+
+export function areLikelyDuplicateHeadlines(a: string, b: string): boolean {
+  const aWords = normalizeHeadlineWords(a);
+  const bWords = normalizeHeadlineWords(b);
+
+  if (!aWords.length || !bWords.length) return false;
+
+  const aSet = new Set(aWords);
+  const bSet = new Set(bWords);
+
+  const intersection = aWords.filter((word) => bSet.has(word)).length;
+  const smaller = Math.min(aSet.size, bSet.size);
+  const larger = Math.max(aSet.size, bSet.size);
+
+  if (intersection === smaller && smaller >= 3) return true;
+
+  const containment = intersection / smaller;
+  const jaccard = intersection / larger;
+
+  // High overlap catches the same story rewritten by different RSS outlets
+  // even when their URLs and exact headlines are different.
+  return containment >= 0.85 || jaccard >= 0.72;
+}
+
+export function getUsedPhotoUrls(articles: StoredArticle[]): Set<string> {
+  const urls = new Set<string>();
+
+  for (const article of articles) {
+    const url = article.photo?.url;
+    const soft = article.photo?.softBackgroundUrl;
+
+    if (url && !url.includes("/api/og/")) urls.add(url);
+    if (soft && !soft.includes("/api/og/")) urls.add(soft);
+  }
+
+  return urls;
+}
+
+export async function addArticle(article: StoredArticle): Promise<void> {
+  const articles = await redisGet();
+
+  // Never store the same source URL twice.
+  if (articles.some((a) => a.link === article.link)) return;
+
+  // Also block the same news event from different RSS feeds when the
+  // rewritten headlines are substantially the same. This is the important
+  // cross-source duplicate protection that the old link-only check lacked.
+  if (articles.some((a) => areLikelyDuplicateHeadlines(a.headline, article.headline))) {
+    console.log(`Skipping duplicate story: ${article.headline}`);
+    return;
+  }
+
+  articles.unshift(article);
+  await redisSet(articles.slice(0, 200));
+}
+
 export async function getArticleById(id: string): Promise<StoredArticle | null> {
   const articles = await redisGet();
   return articles.find((a) => a.id === id) ?? null;
 }
 
-export async function addArticle(article: StoredArticle): Promise<void> {
-  const articles = await redisGet();
-  if (articles.some((a) => a.link === article.link)) return; // no duplicates
-  articles.unshift(article);
-  await redisSet(articles.slice(0, 200)); // keep the store bounded
-}
-
-// Daily post counters - split into two independent counts, both keyed by
-// Kenyan local date (not UTC, since this is a Kenyan news site and the
-// day should reset at Kenyan midnight):
-//
-// - "paced" count: NON-breaking articles, subject to the 15/day cap AND
-//   spread evenly across the day (see the pacing calculation in the cron
-//   route) rather than all firing in one burst of news.
-// - "breaking" count: BREAKING articles, which bypass the cap and pacing
-//   entirely and always post immediately - this counter exists purely
-//   for visibility in the cron response, not to enforce any limit.
+// Daily post counters - both keyed by Kenyan local date.
 function nairobiDateKey(): string {
-  // en-CA gives YYYY-MM-DD directly, which is exactly the key format we want.
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi" }).format(new Date());
 }
 
@@ -90,8 +148,6 @@ async function redisIncr(key: string): Promise<void> {
     await fetch(`${REDIS_URL}/incr/${key}`, {
       headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
     });
-    // Let the counter key expire on its own after 2 days so old daily
-    // counters don't pile up forever - harmless to re-set this every call.
     await fetch(`${REDIS_URL}/expire/${key}/172800`, {
       headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
     });
@@ -130,26 +186,5 @@ export async function incrementDailyBreakingCount(): Promise<void> {
   await redisIncr(`next-scene-news:breaking-count:${nairobiDateKey()}`);
 }
 
-// Maximum number of non-breaking (paced) articles posted per day. Shared by
-// every route that publishes paced posts (the RSS/rewrite cron pipeline and
-// the Facebook-webhook pipeline alike) so they draw from one combined daily
-// budget rather than each having their own separate cap.
+// Maximum number of non-breaking Facebook posts per Kenyan day.
 export const DAILY_PACED_LIMIT = 15;
-
-// How many paced slots should have been used by this point in the Kenyan
-// day, so paced posts trickle out over the whole day instead of firing in
-// one burst as soon as the daily counter resets.
-export function expectedPacedSlotsByNow(): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Africa/Nairobi",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
-  const minutesSinceMidnight = hour * 60 + minute;
-
-  return Math.ceil((minutesSinceMidnight / 1440) * DAILY_PACED_LIMIT);
-}
