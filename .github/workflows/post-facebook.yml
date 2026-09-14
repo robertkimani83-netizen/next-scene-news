@@ -5,6 +5,13 @@ on:
   schedule:
     - cron: '*/20 * * * *'
 
+# Only one Facebook publisher run may be active at a time. This prevents
+# overlapping scheduled runs from selecting the same article before its
+# temporary Redis claim is visible.
+concurrency:
+  group: facebook-posting
+  cancel-in-progress: false
+
 jobs:
   post-facebook:
     runs-on: ubuntu-latest
