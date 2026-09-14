@@ -12,6 +12,10 @@ const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   'https://next-scene-news-897q.vercel.app';
 
+// Change this whenever the OG card design/rendering changes so Facebook/Make
+// receives a fresh image URL instead of reusing an older cached card.
+const OG_CARD_VERSION = '3';
+
 async function isPosted(id: string): Promise<boolean> {
   if (!REDIS_URL || !REDIS_TOKEN) return false;
 
@@ -129,7 +133,10 @@ export async function GET() {
 
       if (!isBreaking && dailyCapReached) continue;
 
-      const imageUrl = `${SITE_URL}/api/og/${article.id}`;
+      // The version query deliberately changes the image URL after a card
+      // rendering change. This prevents Facebook/Make from reusing the old
+      // blank/incorrect card for an article that has not been posted yet.
+      const imageUrl = `${SITE_URL}/api/og/${article.id}?v=${OG_CARD_VERSION}`;
 
       // The website itself is the gatekeeper. If the branded card cannot
       // be generated and returned as an actual image, this article is NOT
