@@ -10,32 +10,21 @@ import {
   addArticle,
   loadArticles,
   getDailyPacedCount,
-  incrementDailyPacedCount,
   getDailyBreakingCount,
-  incrementDailyBreakingCount,
-  DAILY_PACED_LIMIT,
+  getUsedPhotoUrls,
+  areLikelyDuplicateHeadlines,
   type StoredArticle,
 } from "@/lib/store";
-import { postToFacebook } from "@/lib/social/facebook";
 import { postToInstagram } from "@/lib/social/instagram";
 import { postToX } from "@/lib/social/x";
 
-// This route is the whole pipeline in one place:
-// pull news -> read the real article page -> rewrite as a full original
-// article -> find and verify a photo -> post to all three platforms ->
-// save it to the site.
-//
-// Designed to run on a schedule through vercel.json.
+// This route ingests news and publishes to Instagram/X.
+// Facebook has ONE publisher only: GitHub Actions -> Make -> Facebook.
+// The old direct Facebook call here created a second publisher and could
+// duplicate stories on the Page.
 
 const MAX_POSTS_PER_RUN = 3;
 
-// DAILY_PACED_LIMIT is a daily cap shared with the Facebook-webhook
-// pipeline. Normal posts are no longer hourly-paced; they may use any
-// remaining part of the 15-post daily budget. Breaking posts bypass the
-// cap completely.
-
-// Vision-verifying candidate photos takes time because each candidate may
-// require an image download + Gemini verification call.
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
@@ -59,101 +48,53 @@ export async function GET(req: NextRequest) {
   const pacedPostedToday = await getDailyPacedCount();
   const breakingPostedToday = await getDailyBreakingCount();
 
-  // Hard daily cap only. There is intentionally no hourly pacing calculation.
-  const pacedSlotsLeftThisRun = Math.max(
-    0,
-    Math.min(
-      MAX_POSTS_PER_RUN,
-      DAILY_PACED_LIMIT - pacedPostedToday
-    )
-  );
-
-  let remainingPacedSlots = pacedSlotsLeftThisRun;
-
   const existing = await loadArticles();
-
-  const existingLinks = new Set(
-    existing.map((a) => a.link)
-  );
+  const existingLinks = new Set(existing.map((a) => a.link));
+  const usedPhotoUrls = getUsedPhotoUrls(existing);
 
   const raw = await fetchAllFeeds();
 
-  const candidates = raw.filter(
-    (a) => !existingLinks.has(a.link)
-  );
+  const candidates = raw.filter((a) => !existingLinks.has(a.link));
 
-  // Shuffle the RSS candidates so the same feed does not always dominate
-  // the run.
+  // Shuffle the RSS candidates so one source does not always dominate.
   for (let i = candidates.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-
-    [candidates[i], candidates[j]] = [
-      candidates[j],
-      candidates[i],
-    ];
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
 
-  // Prefer stories that already have a real article image.
-  const withPhoto = candidates.filter(
-    (a) => a.realImageUrl
-  );
-
-  const withoutPhoto = candidates.filter(
-    (a) => !a.realImageUrl
-  );
-
-  const freshRaw = [
-    ...withPhoto,
-    ...withoutPhoto,
-  ].slice(0, MAX_POSTS_PER_RUN);
+  const withPhoto = candidates.filter((a) => a.realImageUrl);
+  const withoutPhoto = candidates.filter((a) => !a.realImageUrl);
+  const freshRaw = [...withPhoto, ...withoutPhoto].slice(0, MAX_POSTS_PER_RUN);
 
   const results: Array<{
     headline: string;
     importance: string;
-    postedTo: {
-      facebook: boolean;
-      instagram: boolean;
-      x: boolean;
-    };
+    postedTo: { facebook: boolean; instagram: boolean; x: boolean };
   }> = [];
 
-  const skippedForPacing: string[] = [];
+  const skippedDuplicates: string[] = [];
+  const skippedNoPhoto: string[] = [];
   const errors: string[] = [];
 
   for (const rawArticle of freshRaw) {
     try {
-      const pageData = await fetchArticlePage(
-        rawArticle.link
-      );
+      const pageData = await fetchArticlePage(rawArticle.link);
+      const rewritten = await rewriteArticle(rawArticle, pageData.bodyText);
+      const isBreaking = rewritten.importance === "breaking";
 
-      const rewritten = await rewriteArticle(
-        rawArticle,
-        pageData.bodyText
-      );
-
-      const isBreaking =
-        rewritten.importance === "breaking";
-
-      // Breaking news bypasses the daily normal-post cap.
-      // Normal stories use only the remaining 15/day budget.
-      if (
-        !isBreaking &&
-        remainingPacedSlots <= 0
-      ) {
-        skippedForPacing.push(
-          rewritten.headline
-        );
-
+      // Cross-source duplicate protection: the same event often appears
+      // under different URLs on Kenyans.co.ke, AllAfrica and Nairobi Wire.
+      if (existing.some((a) => areLikelyDuplicateHeadlines(a.headline, rewritten.headline))) {
+        skippedDuplicates.push(rewritten.headline);
+        console.log(`Skipping duplicate story: ${rewritten.headline}`);
         continue;
       }
 
-      const realPhotoUrl =
-        rawArticle.realImageUrl ??
-        pageData.imageUrl;
-
+      const realPhotoUrl = rawArticle.realImageUrl ?? pageData.imageUrl;
       let photo: MatchedPhoto | null = null;
 
-      if (realPhotoUrl) {
+      // Prefer the publisher's own article image when it passes verification.
+      if (realPhotoUrl && !usedPhotoUrls.has(realPhotoUrl)) {
         photo = await verifyExternalCandidate(
           realPhotoUrl,
           rawArticle.title,
@@ -165,6 +106,7 @@ export async function GET(req: NextRequest) {
         );
       }
 
+      // Otherwise use the verified photo discovery engine.
       if (!photo) {
         photo = await findMatchingPhoto(
           rewritten.photoSearchTerms,
@@ -175,28 +117,36 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      const id = crypto.randomUUID();
-
-      const ownArticleUrl =
-        `${siteUrl}/article/${id}`;
-
-      if (!photo.url) {
-        photo = {
-          ...photo,
-          url: `${siteUrl}/api/og/${id}`,
-          photographer: "VOX254",
-          photographerUrl: siteUrl,
-          credit: "VOX254",
-        };
+      // A Facebook news card must have a real image. Do not create another
+      // blank/solid card just to keep the posting queue moving.
+      const photoUrl = photo?.url || photo?.softBackgroundUrl || "";
+      if (!photoUrl || usedPhotoUrls.has(photoUrl)) {
+        skippedNoPhoto.push(rewritten.headline);
+        console.log(
+          `Skipping "${rewritten.headline}" because no unused verified photo is available.`
+        );
+        continue;
       }
+
+      const id = crypto.randomUUID();
+      const ownArticleUrl = `${siteUrl}/article/${id}`;
+
+      const storedPhoto: MatchedPhoto = photo.url
+        ? photo
+        : {
+            ...photo,
+            url: photoUrl,
+          };
 
       const stored: StoredArticle = {
         id,
         link: rawArticle.link,
         sourceName: rawArticle.sourceName,
         publishedAt: rawArticle.publishedAt,
-        photo,
+        photo: storedPhoto,
         postedTo: {
+          // Facebook is intentionally false here. GitHub/Make is the sole
+          // Facebook publisher and will confirm it after Facebook succeeds.
           facebook: false,
           instagram: false,
           x: false,
@@ -204,32 +154,7 @@ export async function GET(req: NextRequest) {
         ...rewritten,
       };
 
-      const socialImageUrl =
-        `${siteUrl}/api/og/${id}`;
-
-      try {
-        await postToFacebook(
-          socialImageUrl,
-          rewritten.facebookCaption,
-          ownArticleUrl
-        );
-
-        stored.postedTo.facebook = true;
-      } catch (e) {
-        const message =
-          e instanceof Error
-            ? e.message
-            : String(e);
-
-        console.error(
-          "FB post failed:",
-          e
-        );
-
-        errors.push(
-          `"${stored.headline}" - Facebook: ${message}`
-        );
-      }
+      const socialImageUrl = `${siteUrl}/api/og/${id}?v=4`;
 
       try {
         await postToInstagram(
@@ -237,22 +162,11 @@ export async function GET(req: NextRequest) {
           rewritten.instagramCaption,
           ownArticleUrl
         );
-
         stored.postedTo.instagram = true;
       } catch (e) {
-        const message =
-          e instanceof Error
-            ? e.message
-            : String(e);
-
-        console.error(
-          "IG post failed:",
-          e
-        );
-
-        errors.push(
-          `"${stored.headline}" - Instagram: ${message}`
-        );
+        const message = e instanceof Error ? e.message : String(e);
+        console.error("IG post failed:", e);
+        errors.push(`"${stored.headline}" - Instagram: ${message}`);
       }
 
       try {
@@ -261,32 +175,18 @@ export async function GET(req: NextRequest) {
           rewritten.xCaption,
           ownArticleUrl
         );
-
         stored.postedTo.x = true;
       } catch (e) {
-        const message =
-          e instanceof Error
-            ? e.message
-            : String(e);
-
-        console.error(
-          "X post failed:",
-          e
-        );
-
-        errors.push(
-          `"${stored.headline}" - X: ${message}`
-        );
+        const message = e instanceof Error ? e.message : String(e);
+        console.error("X post failed:", e);
+        errors.push(`"${stored.headline}" - X: ${message}`);
       }
 
       await addArticle(stored);
 
-      if (isBreaking) {
-        await incrementDailyBreakingCount();
-      } else {
-        await incrementDailyPacedCount();
-        remainingPacedSlots -= 1;
-      }
+      usedPhotoUrls.add(photoUrl);
+      if (photo.url) usedPhotoUrls.add(photo.url);
+      if (photo.softBackgroundUrl) usedPhotoUrls.add(photo.softBackgroundUrl);
 
       results.push({
         headline: stored.headline,
@@ -294,43 +194,23 @@ export async function GET(req: NextRequest) {
         postedTo: stored.postedTo,
       });
     } catch (e) {
-      const message =
-        e instanceof Error
-          ? e.message
-          : String(e);
-
-      console.error(
-        `Failed to process article "${rawArticle.title}":`,
-        e
-      );
-
-      errors.push(
-        `"${rawArticle.title}": ${message}`
-      );
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`Failed to process article "${rawArticle.title}":`, e);
+      errors.push(`"${rawArticle.title}": ${message}`);
     }
   }
-
-  const newPacedCount =
-    results.filter(
-      (r) => r.importance !== "breaking"
-    ).length;
-
-  const newBreakingCount =
-    results.filter(
-      (r) => r.importance === "breaking"
-    ).length;
 
   return NextResponse.json({
     rawFeedItemsFound: raw.length,
     newItemsAfterDedup: freshRaw.length,
     processed: results.length,
-    skippedForPacing,
-    pacedPostedToday:
-      pacedPostedToday + newPacedCount,
-    pacedDailyLimit:
-      DAILY_PACED_LIMIT,
-    breakingPostedToday:
-      breakingPostedToday + newBreakingCount,
+    skippedDuplicates,
+    skippedNoPhoto,
+    // These are informational only here. Facebook's 15/day counter is
+    // incremented exclusively after the Make/Facebook publisher confirms.
+    facebookNormalPostsToday: pacedPostedToday,
+    facebookNormalDailyLimit: 15,
+    breakingFacebookPostsToday: breakingPostedToday,
     results,
     errors,
   });
