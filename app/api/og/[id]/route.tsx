@@ -31,9 +31,6 @@ async function getPhotoDataUrl(siteUrl: string, id: string) {
   const timeout = setTimeout(() => controller.abort(), PHOTO_TIMEOUT_MS);
 
   try {
-    // Fetch the Node/Sharp JPEG proxy ourselves and pass the resulting JPEG
-    // bytes to Satori as a data URL. This avoids relying on Satori to fetch a
-    // same-origin route during ImageResponse rendering and fixes WebP sources.
     const response = await fetch(`${siteUrl}/api/og-photo/${id}`, {
       signal: controller.signal,
       headers: { Accept: "image/jpeg" },
@@ -100,7 +97,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
             inset: 0,
             display: "flex",
             background:
-              "linear-gradient(to top, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.48) 48%, rgba(255,255,255,0.08) 100%)",
+              "linear-gradient(to top, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.03) 55%, rgba(0,0,0,0.10) 100%)",
           }}
         />
       ) : null}
@@ -113,20 +110,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
           display: "flex",
           alignItems: "center",
           gap: "10px",
-          background: "rgba(0,0,0,0.45)",
+          background: "rgba(0,0,0,0.62)",
           borderRadius: "10px",
           padding: "8px 14px",
         }}
       >
         <img src={logoUrl} width="28" height="28" style={{ opacity: 0.95 }} />
-        <span
-          style={{
-            color: "#fff",
-            fontSize: "18px",
-            fontWeight: 800,
-            letterSpacing: "1px",
-          }}
-        >
+        <span style={{ color: "#fff", fontSize: "18px", fontWeight: 800, letterSpacing: "1px" }}>
           VOX254
         </span>
       </div>
@@ -140,7 +130,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
           background: "#f5c518",
           color: "#111",
           fontSize: "15px",
-          fontWeight: 800,
+          fontWeight: 900,
           letterSpacing: "2px",
           padding: "8px 20px",
           borderRadius: "999px",
@@ -152,43 +142,44 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       <div
         style={{
           position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
+          left: "42px",
+          right: "42px",
+          bottom: "28px",
           display: "flex",
           flexDirection: "column",
-          padding: "0 48px 32px",
-          gap: "14px",
+          alignItems: "flex-start",
+          gap: "12px",
         }}
       >
-        <div
-          style={{
-            width: "80px",
-            height: "7px",
-            background: "#f5c518",
-            display: "flex",
-          }}
-        />
+        <div style={{ width: "90px", height: "8px", background: "#f5c518", display: "flex" }} />
+
         <div
           style={{
             display: "flex",
             color: "#050505",
-            fontSize: hasRealPhoto ? "62px" : "58px",
+            background: "rgba(255,255,255,0.92)",
+            fontSize: hasRealPhoto ? "64px" : "60px",
             fontWeight: 900,
-            lineHeight: 1.08,
-            maxWidth: "1080px",
-            letterSpacing: "0.5px",
+            lineHeight: 1.05,
+            maxWidth: "1085px",
+            letterSpacing: "0.2px",
+            padding: "12px 18px 14px",
+            borderRadius: "4px",
           }}
         >
           {headline}
         </div>
+
         <div
           style={{
             display: "flex",
-            color: "#111",
-            fontSize: "17px",
-            fontWeight: 800,
+            color: "#050505",
+            background: "rgba(255,255,255,0.88)",
+            fontSize: "19px",
+            fontWeight: 900,
             letterSpacing: "1px",
+            padding: "7px 12px",
+            borderRadius: "3px",
           }}
         >
           VOX254 — THE VOICE OF 254 {dateLabel ? `· ${dateLabel}` : ""}
