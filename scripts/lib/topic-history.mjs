@@ -127,6 +127,37 @@ async function writePriorityQueue(priorityPath, queue) {
  * @param {string} priorityKey
  * @returns {Promise<string>} the chosen topic
  */
+// Sept 15 2026: added because generate-short.mjs picks its FORMAT (normal
+// topic vs. "Guess the Country" vs. "Map Challenge") via a random roll
+// BEFORE it ever calls pickWithPriority for that format's pool — so a
+// topic queued under "topic" only actually got used on a run where the
+// dice also happened to land on the normal-topic format. With
+// GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY at ~0.65, a queued
+// trending topic could sit waiting through several map/guess runs in a
+// row (this is exactly what Robert saw: map videos kept coming out while
+// the queued trending topics never did). This lets the format picker
+// check, non-destructively, whether something is queued for a given key
+// BEFORE rolling the dice, so it can skip the roll and force that format
+// instead — a queued pick then goes out on the very next run, which is
+// the whole point of the queue.
+//
+// @param {string} priorityPath
+// @returns {Promise<Record<string, boolean>>} which keys have >=1 pick waiting
+export async function peekQueuedKeys(priorityPath) {
+  const queue = await readPriorityQueue(priorityPath);
+  const result = {};
+  for (const key of Object.keys(queue)) {
+    const value = queue[key];
+    const pending = Array.isArray(value)
+      ? value.filter((v) => typeof v === "string" && v.trim())
+      : typeof value === "string" && value.trim()
+        ? [value]
+        : [];
+    result[key] = pending.length > 0;
+  }
+  return result;
+}
+
 export async function pickWithPriority(pool, historyPath, priorityPath, priorityKey) {
   const queue = await readPriorityQueue(priorityPath);
   const queued = queue[priorityKey];

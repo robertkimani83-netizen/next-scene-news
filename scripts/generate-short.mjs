@@ -23,7 +23,7 @@ import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "
 import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
 import { generateScript, generateGuessScript, generateMapClueScript } from "./lib/script-gen.mjs";
 import { renderMapChallengeCards } from "./lib/map-challenge.mjs";
-import { pickWithPriority } from "./lib/topic-history.mjs";
+import { pickWithPriority, peekQueuedKeys } from "./lib/topic-history.mjs";
 import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
 import { buildHashtags, buildTags } from "./lib/seo.mjs";
 
@@ -506,8 +506,23 @@ async function main() {
   // Manual override for testing/previewing a specific format on demand
   // (set via the workflow_dispatch "format" input -> FORCE_SHORT_FORMAT env
   // var). Unset/"auto" (including every scheduled run, which has no inputs)
-  // falls through to the normal random roll below.
+  // falls through to the queue check, then the normal random roll below.
   const forcedFormat = (process.env.FORCE_SHORT_FORMAT || "auto").toLowerCase();
+
+  // Sept 15 2026: check the priority queue BEFORE rolling the dice on a
+  // format. Previously the random roll happened first and only THEN did the
+  // chosen format's branch call pickWithPriority — so a topic queued under
+  // "topic" only went out on a run that also happened to roll the normal
+  // format, and could sit waiting through several map/guess runs in a row
+  // (with GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY at ~0.65, that's
+  // the more likely outcome, not an edge case). If something is queued,
+  // skip the roll entirely and force that format so the queued pick goes
+  // out on the very next run — "post this first" should mean the next run,
+  // not eventually. "topic" takes priority since that's what the queue has
+  // actually been used for; "guess"/"map" are honored the same way if ever
+  // queued.
+  const queuedKeys = forcedFormat === "auto" ? await peekQueuedKeys(PRIORITY_QUEUE_PATH) : {};
+
   const formatRand = Math.random();
   let isGuessFormat = formatRand < GUESS_FORMAT_PROBABILITY;
   let isMapFormat = !isGuessFormat && formatRand < GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY;
@@ -523,6 +538,18 @@ async function main() {
     isGuessFormat = false;
     isMapFormat = false;
     console.log("[format] forced to normal topic format via FORCE_SHORT_FORMAT");
+  } else if (queuedKeys.topic) {
+    isGuessFormat = false;
+    isMapFormat = false;
+    console.log("[format] a trending topic is queued — forcing normal topic format instead of the random roll");
+  } else if (queuedKeys.guess) {
+    isGuessFormat = true;
+    isMapFormat = false;
+    console.log("[format] a queued pick is waiting for Guess the Country — forcing that format instead of the random roll");
+  } else if (queuedKeys.map) {
+    isGuessFormat = false;
+    isMapFormat = true;
+    console.log("[format] a queued pick is waiting for Map Challenge — forcing that format instead of the random roll");
   }
   let topic, script;
 
