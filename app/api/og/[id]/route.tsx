@@ -1,11 +1,30 @@
 import { getArticleById } from "@/lib/store";
 import sharp from "sharp";
+import fs from "node:fs";
+import path from "node:path";
 
 export const runtime = "nodejs";
 
 const WIDTH = 1200;
 const HEIGHT = 675;
 const CACHE_CONTROL = "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
+
+// Vercel's Node serverless functions do NOT ship system fonts like Arial —
+// there is nothing on the box for librsvg (the SVG renderer Sharp uses under
+// the hood) to fall back to, so every <text>/<tspan> that named
+// "Arial, Helvetica, sans-serif" rendered as empty missing-glyph boxes
+// ("tofu") once this route moved off the Edge/@vercel-og renderer (which
+// bundled its own font). The fix is to embed an actual font's bytes
+// directly in the SVG via a base64 @font-face data URI, so rendering never
+// depends on what fonts (if any) happen to be installed on the host. Reuses
+// the same Anton font already bundled for the NEXTSCENE TV thumbnail engine
+// (assets/fonts/, OFL-licensed) rather than adding a new font dependency —
+// also a good stylistic fit for a bold all-caps news-card headline.
+const HEADLINE_FONT_FAMILY = "VOX254Headline";
+const headlineFontBase64 = fs.readFileSync(
+  path.join(process.cwd(), "assets", "fonts", "Anton-Regular.ttf")
+).toString("base64");
+const FONT_FACE_STYLE = `<style>@font-face{font-family:'${HEADLINE_FONT_FAMILY}';src:url(data:font/truetype;charset=utf-8;base64,${headlineFontBase64}) format('truetype');}text,tspan{font-family:'${HEADLINE_FONT_FAMILY}';}</style>`;
 
 const CATEGORY_STYLES: Record<string, { from: string; to: string; label: string }> = {
   politics: { from: "#7a1f2b", to: "#2b0a0e", label: "POLITICS" },
@@ -114,18 +133,19 @@ function buildOverlaySvg(
 
   return Buffer.from(`
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  ${FONT_FACE_STYLE}
   ${background}
   <rect x="28" y="28" width="145" height="46" rx="10" fill="#071526" fill-opacity="0.92"/>
-  <text x="48" y="59" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="900" fill="#ffffff">V<tspan fill="#f5c518">254</tspan></text>
+  <text x="48" y="59" font-family="${HEADLINE_FONT_FAMILY}" font-size="21" font-weight="900" fill="#ffffff">V<tspan fill="#f5c518">254</tspan></text>
 
   <rect x="${WIDTH - 135}" y="28" width="107" height="42" rx="21" fill="#f5c518"/>
-  <text x="${WIDTH - 81}" y="55" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="900" letter-spacing="2" fill="#111111">${escapeXml(categoryLabel)}</text>
+  <text x="${WIDTH - 81}" y="55" text-anchor="middle" font-family="${HEADLINE_FONT_FAMILY}" font-size="15" font-weight="900" letter-spacing="2" fill="#111111">${escapeXml(categoryLabel)}</text>
 
   <rect x="48" y="${accentY}" width="80" height="7" fill="#f5c518"/>
-  <text font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="900" fill="#050505" letter-spacing="0.4">${textLines}</text>
+  <text font-family="${HEADLINE_FONT_FAMILY}" font-size="${fontSize}" font-weight="900" fill="#050505" letter-spacing="0.4">${textLines}</text>
 
   <rect x="48" y="${HEIGHT - 55}" width="570" height="34" rx="5" fill="#ffffff" fill-opacity="0.96"/>
-  <text x="60" y="${dateY - 3}" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="800" letter-spacing="0.7" fill="#111111">VOX254 — THE VOICE OF 254${dateLabel ? ` · ${escapeXml(dateLabel)}` : ""}</text>
+  <text x="60" y="${dateY - 3}" font-family="${HEADLINE_FONT_FAMILY}" font-size="16" font-weight="800" letter-spacing="0.7" fill="#111111">VOX254 — THE VOICE OF 254${dateLabel ? ` · ${escapeXml(dateLabel)}` : ""}</text>
 </svg>`);
 }
 

@@ -8,6 +8,7 @@ const nextConfig = {
   experimental: {
     outputFileTracingIncludes: {
       '/api/youtube/**': ['./node_modules/ffmpeg-static/**'],
+      '/api/og/**': ['./assets/fonts/**'],
     },
   },
 };
