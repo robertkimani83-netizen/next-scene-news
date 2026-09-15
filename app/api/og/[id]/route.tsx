@@ -14,17 +14,54 @@ const CACHE_CONTROL = "public, max-age=86400, s-maxage=86400, stale-while-revali
 // the hood) to fall back to, so every <text>/<tspan> that named
 // "Arial, Helvetica, sans-serif" rendered as empty missing-glyph boxes
 // ("tofu") once this route moved off the Edge/@vercel-og renderer (which
-// bundled its own font). The fix is to embed an actual font's bytes
-// directly in the SVG via a base64 @font-face data URI, so rendering never
-// depends on what fonts (if any) happen to be installed on the host. Reuses
-// the same Anton font already bundled for the NEXTSCENE TV thumbnail engine
-// (assets/fonts/, OFL-licensed) rather than adding a new font dependency —
-// also a good stylistic fit for a bold all-caps news-card headline.
+// bundled its own font).
+//
+// Attempt 1 was to embed the font directly in the SVG via a base64
+// `@font-face` data URI. That rendered correctly in local testing but NOT
+// on Vercel's production Lambda — the bundled libvips/librsvg build there
+// evidently doesn't honor an embedded @font-face the same way, so it still
+// produced tofu boxes even though the exact same code and font data ran
+// without error. So this is now a belt-and-suspenders fix: in addition to
+// the @font-face declaration, the font file is also registered as a real
+// OS-level font via a private fontconfig config pointed at our bundled
+// font directory, with FONTCONFIG_PATH set before any rendering happens.
+// That makes librsvg's normal "find an installed font named X" path work
+// (font-family="Anton"), which does not depend on @font-face/data-URI
+// support at all. Reuses the same Anton font already bundled for the
+// NEXTSCENE TV thumbnail engine (assets/fonts/, OFL-licensed) — also a good
+// stylistic fit for a bold all-caps news-card headline.
+const REAL_FONT_FAMILY = "Anton";
 const HEADLINE_FONT_FAMILY = "VOX254Headline";
-const headlineFontBase64 = fs.readFileSync(
-  path.join(process.cwd(), "assets", "fonts", "Anton-Regular.ttf")
-).toString("base64");
-const FONT_FACE_STYLE = `<style>@font-face{font-family:'${HEADLINE_FONT_FAMILY}';src:url(data:font/truetype;charset=utf-8;base64,${headlineFontBase64}) format('truetype');}text,tspan{font-family:'${HEADLINE_FONT_FAMILY}';}</style>`;
+const FONT_FAMILY_STACK = `${REAL_FONT_FAMILY}, ${HEADLINE_FONT_FAMILY}, sans-serif`;
+const FONT_FILE_PATH = path.join(process.cwd(), "assets", "fonts", "Anton-Regular.ttf");
+const headlineFontBase64 = fs.readFileSync(FONT_FILE_PATH).toString("base64");
+const FONT_FACE_STYLE = `<style>@font-face{font-family:'${HEADLINE_FONT_FAMILY}';src:url(data:font/truetype;charset=utf-8;base64,${headlineFontBase64}) format('truetype');}text,tspan{font-family:'${FONT_FAMILY_STACK}';}</style>`;
+
+let fontConfigStatus = "not-attempted";
+function ensureFontconfigRegistered(): string {
+  try {
+    const fontDir = path.join(process.cwd(), "assets", "fonts");
+    const fontconfigDir = "/tmp/vox254-fontconfig";
+    const cacheDir = "/tmp/vox254-fontconfig-cache";
+    fs.mkdirSync(fontconfigDir, { recursive: true });
+    fs.mkdirSync(cacheDir, { recursive: true });
+
+    const confXml = `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>${fontDir}</dir>
+  <cachedir>${cacheDir}</cachedir>
+</fontconfig>`;
+    fs.writeFileSync(path.join(fontconfigDir, "fonts.conf"), confXml);
+
+    process.env.FONTCONFIG_PATH = fontconfigDir;
+    return "ok";
+  } catch (error) {
+    console.error("OG fontconfig registration failed", error);
+    return "failed";
+  }
+}
+fontConfigStatus = ensureFontconfigRegistered();
 
 const CATEGORY_STYLES: Record<string, { from: string; to: string; label: string }> = {
   politics: { from: "#7a1f2b", to: "#2b0a0e", label: "POLITICS" },
@@ -136,16 +173,16 @@ function buildOverlaySvg(
   ${FONT_FACE_STYLE}
   ${background}
   <rect x="28" y="28" width="145" height="46" rx="10" fill="#071526" fill-opacity="0.92"/>
-  <text x="48" y="59" font-family="${HEADLINE_FONT_FAMILY}" font-size="21" font-weight="900" fill="#ffffff">V<tspan fill="#f5c518">254</tspan></text>
+  <text x="48" y="59" font-family="${FONT_FAMILY_STACK}" font-size="21" font-weight="900" fill="#ffffff">V<tspan fill="#f5c518">254</tspan></text>
 
   <rect x="${WIDTH - 135}" y="28" width="107" height="42" rx="21" fill="#f5c518"/>
-  <text x="${WIDTH - 81}" y="55" text-anchor="middle" font-family="${HEADLINE_FONT_FAMILY}" font-size="15" font-weight="900" letter-spacing="2" fill="#111111">${escapeXml(categoryLabel)}</text>
+  <text x="${WIDTH - 81}" y="55" text-anchor="middle" font-family="${FONT_FAMILY_STACK}" font-size="15" font-weight="900" letter-spacing="2" fill="#111111">${escapeXml(categoryLabel)}</text>
 
   <rect x="48" y="${accentY}" width="80" height="7" fill="#f5c518"/>
-  <text font-family="${HEADLINE_FONT_FAMILY}" font-size="${fontSize}" font-weight="900" fill="#050505" letter-spacing="0.4">${textLines}</text>
+  <text font-family="${FONT_FAMILY_STACK}" font-size="${fontSize}" font-weight="900" fill="#050505" letter-spacing="0.4">${textLines}</text>
 
   <rect x="48" y="${HEIGHT - 55}" width="570" height="34" rx="5" fill="#ffffff" fill-opacity="0.96"/>
-  <text x="60" y="${dateY - 3}" font-family="${HEADLINE_FONT_FAMILY}" font-size="16" font-weight="800" letter-spacing="0.7" fill="#111111">VOX254 — THE VOICE OF 254${dateLabel ? ` · ${escapeXml(dateLabel)}` : ""}</text>
+  <text x="60" y="${dateY - 3}" font-family="${FONT_FAMILY_STACK}" font-size="16" font-weight="800" letter-spacing="0.7" fill="#111111">VOX254 — THE VOICE OF 254${dateLabel ? ` · ${escapeXml(dateLabel)}` : ""}</text>
 </svg>`);
 }
 
@@ -205,7 +242,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         "Content-Type": "image/jpeg",
         "Content-Length": String(output.length),
         "Cache-Control": CACHE_CONTROL,
-        "X-Vox254-OG": "sharp-compositor-v3",
+        "X-Vox254-OG": "sharp-compositor-v4-fontconfig",
+        "X-Vox254-Font-Setup": fontConfigStatus,
       },
     });
   } catch (error) {
