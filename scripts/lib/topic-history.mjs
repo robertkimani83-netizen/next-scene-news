@@ -98,20 +98,28 @@ async function writePriorityQueue(priorityPath, queue) {
 // (or Claude, when asked) is the one deciding something is actually worth
 // jumping the line for, not an unsupervised heuristic.
 //
+// Sept 15 2026 (later same day): upgraded each key to hold either a single
+// string (one queued pick, as before) OR an array of strings (several
+// queued picks, used first-in-first-out, one per run) — Robert asked to
+// queue a second trending pick before the first had even been used yet, so
+// a single overwritable slot per key wasn't enough.
+//
 /**
  * Same contract as pickAndRecordTopic, but first checks `priorityPath` for a
- * manually-queued "post this next" value under `priorityKey`. If one is
- * queued (a non-empty string), it's used immediately, cleared from the
- * queue file, and — if it's also a real member of `pool` — recorded into
- * the normal LRU history too, so the regular rotation stays correct
- * afterward and this pick doesn't look "never used" and get immediately
- * re-picked. If nothing is queued, this behaves exactly like
- * pickAndRecordTopic.
+ * manually-queued "post this next" value under `priorityKey`. That value can
+ * be a single string, or an array of strings for several queued picks (used
+ * oldest-first, one per run). Whichever one comes off the front is used
+ * immediately, removed from the queue file, and — if it's also a real
+ * member of `pool` — recorded into the normal LRU history too, so the
+ * regular rotation stays correct afterward and this pick doesn't look
+ * "never used" and get immediately re-picked. If the queue for this key is
+ * empty or unset, this behaves exactly like pickAndRecordTopic.
  *
- * Queue files are plain JSON, e.g. `{ "topic": "The country everyone is
- * suddenly talking about this week" }` — see state/priority-queue-short.json
- * and state/priority-queue-long.json, and the "Post something trending
- * first" section of the pipeline README for how these get set.
+ * Queue files are plain JSON, e.g. `{ "topic": ["Trending pick A",
+ * "Trending pick B"] }` (or just `{ "topic": "Trending pick A" }` for a
+ * single one) — see state/priority-queue-short.json and
+ * state/priority-queue-long.json, and the "Post something trending first"
+ * section of the pipeline README for how these get set.
  *
  * @param {string[]} pool
  * @param {string} historyPath
@@ -123,11 +131,16 @@ export async function pickWithPriority(pool, historyPath, priorityPath, priority
   const queue = await readPriorityQueue(priorityPath);
   const queued = queue[priorityKey];
 
-  if (typeof queued === "string" && queued.trim()) {
-    const chosen = queued.trim();
-    console.log(`[topic] using queued priority pick for "${priorityKey}": ${chosen}`);
+  // Normalize to an array so a single-string queue and a multi-item queue
+  // both fall through the same logic below.
+  const pending = Array.isArray(queued) ? queued : queued ? [queued] : [];
+  const [next, ...rest] = pending;
 
-    queue[priorityKey] = null;
+  if (typeof next === "string" && next.trim()) {
+    const chosen = next.trim();
+    console.log(`[topic] using queued priority pick for "${priorityKey}": ${chosen}` + (rest.length ? ` (${rest.length} more still queued)` : ""));
+
+    queue[priorityKey] = rest.length ? rest : null;
     await writePriorityQueue(priorityPath, queue);
 
     if (pool.includes(chosen)) {
