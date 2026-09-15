@@ -161,12 +161,20 @@ function buildOverlaySvg(
     )
     .join("");
 
+  // No more solid/white panel behind the headline or date bar — the request
+  // was to drop that background entirely and have the caption sit directly
+  // on the photo. To keep bold BLACK text legible against a photo of any
+  // brightness (a plain black fill can vanish into a dark photo), the
+  // headline and date text are drawn with a thin white outline
+  // (paint-order: stroke) behind the black fill, instead of a rectangle.
   const background = hasPhoto
-    ? `<rect x="0" y="${panelY}" width="${WIDTH}" height="${panelHeight}" fill="#ffffff" fill-opacity="0.94"/>`
-    : `<rect x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="#152a46"/>\n       <rect x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="#000000" fill-opacity="0.12"/>\n       <rect x="0" y="${panelY}" width="${WIDTH}" height="${panelHeight}" fill="#ffffff"/>`;
+    ? ""
+    : `<rect x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="#152a46"/>\n       <rect x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="#000000" fill-opacity="0.12"/>`;
 
   const accentY = Math.max(18, Math.round(panelY - 13));
   const dateY = HEIGHT - 25;
+  const captionStroke = (width: number) =>
+    `paint-order="stroke" stroke="#ffffff" stroke-width="${width}" stroke-linejoin="round"`;
 
   return Buffer.from(`
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -179,10 +187,9 @@ function buildOverlaySvg(
   <text x="${WIDTH - 81}" y="55" text-anchor="middle" font-family="${FONT_FAMILY_STACK}" font-size="15" font-weight="900" letter-spacing="2" fill="#111111">${escapeXml(categoryLabel)}</text>
 
   <rect x="48" y="${accentY}" width="80" height="7" fill="#f5c518"/>
-  <text font-family="${FONT_FAMILY_STACK}" font-size="${fontSize}" font-weight="900" fill="#050505" letter-spacing="0.4">${textLines}</text>
+  <text font-family="${FONT_FAMILY_STACK}" font-size="${fontSize}" font-weight="900" fill="#050505" letter-spacing="0.4" ${captionStroke(6)}>${textLines}</text>
 
-  <rect x="48" y="${HEIGHT - 55}" width="570" height="34" rx="5" fill="#ffffff" fill-opacity="0.96"/>
-  <text x="60" y="${dateY - 3}" font-family="${FONT_FAMILY_STACK}" font-size="16" font-weight="800" letter-spacing="0.7" fill="#111111">VOX254 — THE VOICE OF 254${dateLabel ? ` · ${escapeXml(dateLabel)}` : ""}</text>
+  <text x="60" y="${dateY - 3}" font-family="${FONT_FAMILY_STACK}" font-size="16" font-weight="800" letter-spacing="0.7" fill="#050505" ${captionStroke(4)}>VOX254 — THE VOICE OF 254${dateLabel ? ` · ${escapeXml(dateLabel)}` : ""}</text>
 </svg>`);
 }
 
