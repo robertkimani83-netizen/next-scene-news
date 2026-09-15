@@ -1,0 +1,1331 @@
+diff --git a/.github/workflows/create-song.yml b/.github/workflows/create-song.yml
+index b215c94..100792f 100644
+--- a/.github/workflows/create-song.yml
++++ b/.github/workflows/create-song.yml
+@@ -4,7 +4,7 @@ on:
+   workflow_dispatch:
+     inputs:
+       song_title:
+-        description: 'Song title'
++        description: 'Song title (a starting idea - Gemini can improve it)'
+         required: true
+         default: 'Sweet Island Loving'
+         type: string
+@@ -19,17 +19,17 @@ on:
+         default: 'Romantic, warm, uplifting'
+         type: string
+       language:
+-        description: 'Language'
++        description: 'Language (English only for now - see README)'
+         required: true
+-        default: 'English + Swahili'
++        default: 'English'
+         type: string
+       video_style:
+-        description: 'Music-video visual style'
++        description: 'Music-video visual style (used as a Pexels photo search hint)'
+         required: true
+         default: 'African tropical island, cinematic, romantic, realistic'
+         type: string
+       duration:
+-        description: 'Target duration in minutes'
++        description: 'Target duration in minutes (clamped to the AI singers supported range, 1.6-4.75 min)'
+         required: true
+         default: '2'
+         type: string
+@@ -50,8 +50,16 @@ on:
+ 
+ jobs:
+   generate:
+-    runs-on: windows-latest
+-    timeout-minutes: 360
++    # Sept 15 2026: switched from windows-latest + a local ACE-Step install
++    # to plain ubuntu-latest. The actual singing/music generation now runs
++    # on Hugging Face's free hosted infrastructure (see generate_music.py),
++    # so this runner never needs to do heavy AI compute itself -- it's just
++    # calling APIs and running ffmpeg, exactly like next-scene-news's
++    # runners. This is also cheaper on your free GitHub Actions minutes:
++    # Windows runners count double against the free monthly quota, Linux
++    # runners count 1x.
++    runs-on: ubuntu-latest
++    timeout-minutes: 30
+     permissions:
+       contents: read
+       actions: read
+@@ -65,11 +73,9 @@ jobs:
+       SONG_DURATION_MIN: ${{ inputs.duration }}
+       YOUTUBE_UPLOAD: ${{ inputs.upload_youtube }}
+       YOUTUBE_PRIVACY: ${{ inputs.youtube_privacy }}
+-      ACESTEP_BASE_URL: http://127.0.0.1:8001
+-      ACESTEP_MAX_SECONDS: '120'
+-      ACESTEP_TIMEOUT_SECONDS: '14400'
+-      CUDA_VISIBLE_DEVICES: '-1'
+-      HF_HUB_DISABLE_TELEMETRY: '1'
++      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
++      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
++      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+ 
+     steps:
+       - name: Checkout
+@@ -81,60 +87,27 @@ jobs:
+           python-version: '3.11'
+ 
+       - name: Install FFmpeg
+-        shell: powershell
+-        run: |
+-          choco install ffmpeg -y --no-progress
+-          ffmpeg -version | Select-Object -First 1
+-
+-      - name: Prepare local ACE-Step
+-        shell: powershell
+-        run: .\scripts\setup_local_acestep.ps1
+-
+-      - name: Start local ACE-Step API in CPU mode
+-        shell: powershell
+-        run: |
+-          $env:CUDA_VISIBLE_DEVICES='-1'
+-          $env:ACESTEP_LM_BACKEND='pt'
+-          $env:ACESTEP_INIT_LLM='true'
+-          $env:PYTHONUNBUFFERED='1'
+-          $ace = Join-Path $env:USERPROFILE 'ACE-Step-1.5'
+-          Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command',"Set-Location '$ace'; `$env:CUDA_VISIBLE_DEVICES='-1'; `$env:ACESTEP_LM_BACKEND='pt'; `$env:ACESTEP_INIT_LLM='true'; uv run acestep-api --host 127.0.0.1 --port 8001 --lm_backend pt" -WindowStyle Hidden
+-          $ready = $false
+-          for ($i=0; $i -lt 180; $i++) {
+-            try {
+-              $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8001/health' -UseBasicParsing -TimeoutSec 5
+-              if ($r.StatusCode -eq 200) { $ready = $true; break }
+-            } catch {}
+-            Start-Sleep -Seconds 5
+-          }
+-          if (-not $ready) { throw 'Local ACE-Step API did not become ready.' }
+-          Write-Host 'Local ACE-Step API is ready.'
++        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+ 
+       - name: Install pipeline Python dependencies
+-        shell: powershell
+         run: |
+           python -m pip install --upgrade pip
+           pip install -r requirements.txt
+ 
+       - name: Generate lyrics and metadata
+-        shell: powershell
+-        run: python scripts\generate_metadata.py
++        run: python scripts/generate_metadata.py
+ 
+-      - name: Generate full song locally with ACE-Step
+-        shell: powershell
+-        run: python scripts\generate_music.py
++      - name: Generate full sung song (DiffRhythm, free HF Space)
++        run: python scripts/generate_music.py
+ 
+-      - name: Generate music-video scenes
+-        shell: powershell
+-        run: python scripts\generate_scenes.py
++      - name: Fetch real photos for music-video scenes
++        run: python scripts/generate_scenes.py
+ 
+       - name: Assemble music video
+-        shell: powershell
+-        run: python scripts\assemble_video.py
++        run: python scripts/assemble_video.py
+ 
+       - name: Generate thumbnail
+-        shell: powershell
+-        run: python scripts\generate_thumbnail.py
++        run: python scripts/generate_thumbnail.py
+ 
+       - name: Upload to YouTube
+         if: ${{ inputs.upload_youtube }}
+@@ -142,8 +115,7 @@ jobs:
+           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+-        shell: powershell
+-        run: python scripts\upload_youtube.py
++        run: python scripts/upload_youtube.py
+ 
+       - name: Publish generated files as artifact
+         uses: actions/upload-artifact@v4
+diff --git a/FREE_GPU.md b/FREE_GPU.md
+deleted file mode 100644
+index 634b297..0000000
+--- a/FREE_GPU.md
++++ /dev/null
+@@ -1,66 +0,0 @@
+-# FREE GPU SETUP — Afro-Reggae AI Music
+-
+-## Important
+-
+-The GitHub-hosted `ubuntu-latest` runner does **not** provide an NVIDIA GPU for this workload. The normal workflow therefore stays on a self-hosted GPU runner. GitHub documents standard public runners as CPU VMs; GPU-powered larger runners are a separate feature. 
+-
+-Your Dell OptiPlex 7040 with GT 730 is not a practical machine for ACE-Step + SDXL generation.
+-
+-## Best no-cost test route
+-
+-Use a free GPU notebook service for testing the pipeline, then move to a permanent GPU runner when you have one. Free GPU services are temporary and availability/limits can change.
+-
+-### Option A — Kaggle Notebook
+-
+-1. Open Kaggle and create a new Notebook.
+-2. In Notebook settings, enable **GPU**.
+-3. Open a terminal cell or use Python cells to clone this repository.
+-4. Install the dependencies from `requirements.txt` and `requirements-vision.txt`.
+-5. Install and start ACE-Step 1.5 locally.
+-6. Run:
+-
+-```bash
+-python scripts/generate_metadata.py \\
+-  --title "Sweet Island Loving" \\
+-  --theme "Romantic island love under the African sunset" \\
+-  --mood "Romantic, warm, uplifting" \\
+-  --language "English + Swahili" \\
+-  --video-style "African tropical island, cinematic, romantic, realistic" \\
+-  --duration 3
+-```
+-
+-Then run the music, scene, video and thumbnail scripts in the same order as `.github/workflows/create-song.yml`.
+-
+-### Option B — Google Colab
+-
+-A free Colab GPU can also be used for a manual test. Free Colab GPU access is not guaranteed and sessions are temporary, so it should not be treated as the permanent GitHub runner.
+-
+-## Permanent automation
+-
+-For one-click GitHub Actions automation, the machine needs to be a self-hosted Linux GPU runner with these labels:
+-
+-- `self-hosted`
+-- `linux`
+-- `gpu`
+-
+-The existing workflow already targets:
+-
+-```yaml
+-runs-on: [self-hosted, linux, gpu]
+-```
+-
+-A suitable NVIDIA GPU should have enough VRAM for ACE-Step and SDXL. The exact requirement depends on the model/offloading configuration.
+-
+-## Do not add YouTube secrets yet
+-
+-First make one song successfully. After generation works, add these GitHub Actions secrets:
+-
+-- `YOUTUBE_CLIENT_ID`
+-- `YOUTUBE_CLIENT_SECRET`
+-- `YOUTUBE_REFRESH_TOKEN`
+-
+-For the first upload test, use **private** visibility.
+-
+-## Free means no paid AI API
+-
+-This project uses local/open-source generation rather than a paid AI generation API. The remaining limitation is compute: free GPU notebook sessions are temporary, while a permanent self-hosted GPU requires hardware you control or a provider that supplies free compute.
+diff --git a/README.md b/README.md
+index d287aa2..038f576 100644
+--- a/README.md
++++ b/README.md
+@@ -1,63 +1,91 @@
+ # Afro-Reggae AI Music
+ 
+-A completely separate, free, local-first pipeline for creating Afro-Reggae songs with vocals, music-video visuals, thumbnails, and YouTube-ready videos.
+-
+-## Important
+-
+-This project is intentionally separate from `next-scene-news`.
+-
+-The music generator now uses **local ACE-Step 1.5** on your own Windows PC. There is no Suno API, no MusicAPI, no Hugging Face Space, no `HF_TOKEN`, and no paid music service.
+-
+-ACE-Step officially supports CPU-only inference, although it is significantly slower than GPU inference. The workflow therefore uses the PC as a self-hosted GitHub Actions runner and forces CPU mode. citeturn0search1
++A free, fully-automated pipeline for creating original Afro-Reggae/Lovers
++Rock love songs -- real AI-written lyrics, real AI-sung vocals, a music
++video built from real photos, a thumbnail, and (optionally) a direct upload
++to NEXT VIBE MUSIC.
++
++This project is intentionally separate from `next-scene-news` (the
++NEXTSCENE TV pipeline) -- different channel, different content, its own
++repo and secrets.
++
++## Sept 15 2026 rebuild -- what changed and why
++
++The previous version of this pipeline never actually produced a video. All
++3 test runs failed. On top of that, two things were quietly broken even
++before the failure:
++
++- **Lyrics weren't AI-generated at all.** `generate_metadata.py` used two
++  hardcoded lyric templates and returned the literal same "Sweet island
++  loving..." song every single run, no matter what title/theme/mood you
++  typed into the workflow form.
++- **The music engine needed a real GPU.** It tried to run ACE-Step 1.5 (a
++  full AI singing model) locally, either on your own PC or on a GitHub
++  runner. Neither has a GPU capable of that: your PC's GT 730 was already
++  flagged in this repo's own old notes as too weak, and GitHub's free
++  runners have no GPU at all. The last attempt just sat waiting ~25 minutes
++  for the model to start, then gave up.
++
++This rebuild fixes both:
++
++- **Lyrics, title, style, description and tags now come from a real Gemini
++  call** (`scripts/generate_metadata.py`), the same way the news channel's
++  pipeline writes real scripts -- so every song is genuinely about what you
++  typed in, not a fixed template.
++- **Singing now happens on Hugging Face's free "ZeroGPU" shared GPU pool**,
++  via the open-source [DiffRhythm](https://github.com/ASLP-lab/DiffRhythm)
++  model's public Space (`scripts/generate_music.py`). This machine (or the
++  GitHub runner) never needs a GPU itself -- it just sends a request over
++  the internet and gets a finished song back, the same pattern already used
++  for FLUX thumbnail backgrounds in `next-scene-news`.
++- **Music-video scenes are now real photos from Pexels** (free stock photo
++  API, same service the news channel already uses), instead of plain
++  color-gradient cards.
++- **The whole workflow runs on a normal free `ubuntu-latest` GitHub runner**
++  -- no self-hosted runner, no Windows, no local model installs. This is
++  also cheaper on your free Actions minutes (Windows runners count double).
++
++## One real limitation: English only, for now
++
++DiffRhythm's own lyrics tool only lists English and Chinese as supported
++languages -- there's no Swahili option, which strongly suggests the model
++wasn't trained on it. Feeding it Swahili lines would likely come out
++mispronounced or garbled. So for now, songs are written and sung in English
++only, even though your channel's earlier videos mixed in Swahili phrases.
++Once this pipeline is proven working end-to-end, it's worth revisiting --
++either testing how the model actually handles a few Swahili words anyway,
++or looking at whether a better-suited free model exists by then.
+ 
+ ## Complete pipeline
+ 
+-1. Open GitHub Actions.
+-2. Choose **Create Afro-Reggae Song**.
+-3. Enter song title, theme, mood, language, visual style and duration.
+-4. GitHub sends the job to the Windows self-hosted runner.
+-5. The runner starts local ACE-Step 1.5.
+-6. Lyrics and music metadata are generated.
+-7. The lyrics and Afro-Reggae prompt are sent to local ACE-Step.
+-8. ACE-Step creates the sung song locally.
+-9. The generated MP3 is saved as `output/song.mp3`.
+-10. Cinematic visual scenes are created.
+-11. FFmpeg combines the visuals and song.
+-12. A 1280x720 thumbnail is created.
+-13. YouTube upload is optional.
+-14. All generated files are saved as a GitHub Actions artifact.
+-
+-The current ACE-Step API uses `POST /release_task`, `POST /query_result`, and `/v1/audio` for asynchronous local generation and audio download. citeturn1search4turn1search7
+-
+-## No API / no payment
+-
+-The music stage requires:
+-
+-- No Suno account
+-- No Suno API
+-- No MusicAPI key
+-- No Hugging Face token
+-- No paid subscription
+-- No paid music credits
+-
+-ACE-Step is downloaded and run locally. Models are downloaded on the first run. citeturn0search1
+-
+-## PC requirement
+-
+-The current PC can run the pipeline in CPU mode, but music generation can be slow. ACE-Step's documentation explicitly says CPU inference is supported and significantly slower. citeturn0search1
+-
+-The repository includes `scripts/setup_local_acestep.ps1`, which downloads ACE-Step and installs its environment automatically when the workflow first runs.
+-
+-## GitHub runner
+-
+-The workflow uses:
+-
+-```text
+-runs-on: [self-hosted, Windows, X64]
+-```
+-
+-This means the Windows PC must have a GitHub self-hosted runner registered for this repository. Once registered, GitHub can send the complete job to the PC automatically.
+-
+-## YouTube
+-
+-YouTube upload is optional. The first test should use `Upload to YouTube = false`. After the generated files work correctly, YouTube can be enabled with the existing YouTube secrets.
++1. Open GitHub Actions -> **Create Afro-Reggae Song** -> Run workflow.
++2. Enter a song title/theme/mood/visual style, and a target duration
++   (1.6-4.75 minutes -- DiffRhythm's supported range).
++3. Gemini writes real lyrics, a title, a music style description, six photo
++   search queries, a YouTube description and tags.
++4. The lyrics are time-stamped into the LRC format DiffRhythm needs.
++5. DiffRhythm (free HF Space) generates the actual sung song.
++6. Pexels supplies six real photos matching the song's story/mood.
++7. FFmpeg turns those photos into a slow Ken Burns-style video and mixes in
++   the song.
++8. A thumbnail is generated.
++9. YouTube upload is optional (off by default for testing).
++10. Everything generated is saved as a GitHub Actions artifact either way,
++    so you can review a run before ever enabling upload.
++
++## Free, and what "free" depends on
++
++No paid AI API is required:
++
++- Gemini: free tier (same key you already use for `next-scene-news`).
++- DiffRhythm singing: Hugging Face's free ZeroGPU Space -- a shared public
++  resource. It's genuinely free, but it's not Robert's dedicated compute:
++  it could occasionally be slow, hit a shared usage limit, or change its
++  interface, since none of that is under your control. If it becomes
++  unreliable in practice, the fallback is a small per-song paid vocal API
++  (e.g. Suno's official API) instead of this free shared one.
++- Pexels: free tier stock photos (same key you already use for
++  `next-scene-news`).
++- YouTube upload: free, standard YouTube Data API.
++
++See `SETUP.md` for exactly which secrets to add.
+diff --git a/SETUP.md b/SETUP.md
+index b442d52..1bb6ee3 100644
+--- a/SETUP.md
++++ b/SETUP.md
+@@ -1,81 +1,69 @@
+ # Setup
+ 
+-## 1. GPU runner
+-
+-The generation workflow targets:
+-
+-`self-hosted, linux, gpu`
+-
+-You need a Linux machine with an NVIDIA GPU, working NVIDIA drivers, Python 3, curl and FFmpeg. The machine should have enough free disk space for the models.
+-
+-GitHub Actions is only the automation layer. Heavy AI generation runs on your own runner so there is no paid AI API.
+-
+-### Add the runner
+-
+-In GitHub open:
+-
+-**Repository → Settings → Actions → Runners → New self-hosted runner**
+-
+-Choose Linux/x64 and follow GitHub's commands on the GPU machine.
+-
+-Give the runner the labels:
+-
+-- `self-hosted`
+-- `linux`
+-- `gpu`
+-
+-## 2. Music model
+-
+-The workflow downloads and installs the open-source **ACE-Step 1.5** project automatically on the runner. ACE-Step supports full-song generation with lyrics/vocals and local inference. Its current documentation lists automatic model download and a REST API server on port 8001.
+-
+-The workflow starts the local ACE-Step API and then sends it the generated lyrics and Afro-Reggae prompt.
+-
+-## 3. AI visual model
+-
+-The scene generator uses:
+-
+-`stabilityai/stable-diffusion-xl-base-1.0`
+-
+-You can change the model by setting `IMAGE_MODEL_ID` in the workflow/environment later.
+-
+-The six generated images are converted into a music-video sequence with FFmpeg camera movement. This keeps the whole system free and local.
+-
+-## 4. YouTube upload
+-
+-The upload script uses the official YouTube Data API.
+-
+-Create Google OAuth credentials for a desktop application, enable **YouTube Data API v3**, authorize your YouTube channel, and obtain a refresh token.
+-
+-Add these repository secrets:
+-
+-- `YOUTUBE_CLIENT_ID`
+-- `YOUTUBE_CLIENT_SECRET`
+-- `YOUTUBE_REFRESH_TOKEN`
+-
+-Never put these values inside the code.
+-
+-For the first test, keep **Upload to YouTube = false**. After the video is successfully generated, test with YouTube visibility `private`.
+-
+-## 5. Run the pipeline
+-
+-Open:
+-
+-**GitHub → afro-reggae-ai-music → Actions → Create Afro-Reggae Song → Run workflow**
+-
+-GitHub supports manually running a `workflow_dispatch` workflow and filling its input fields from the Actions page.
+-
+-Use:
+-
+-- Title: `Sweet Island Loving`
+-- Theme: `Romantic island love under the African sunset`
+-- Mood: `Romantic, warm, uplifting`
+-- Language: `English + Swahili`
+-- Video style: `African tropical island, cinematic, romantic, realistic`
+-- Duration: `3`
+-- Upload: `false`
++No self-hosted runner, no GPU, no local installs -- everything runs on
++GitHub's free `ubuntu-latest` runner. You just need 3-6 free API
++credentials added as repository secrets.
++
++**GitHub -> this repo -> Settings -> Secrets and variables -> Actions ->
++New repository secret**
++
++## 1. Gemini (writes the lyrics/title/description/tags)
++
++- `GEMINI_API_KEY` -- if you already have one from setting up
++  `next-scene-news`, reuse the same value here (secrets don't carry across
++  repos, so it needs to be added again in this one).
++- Free tier is enough. Get one at https://aistudio.google.com/apikey if you
++  don't already have one.
++
++## 2. Hugging Face (runs the actual AI singing, for free, on their shared GPU pool)
++
++- `HF_TOKEN` -- again, reuse your existing token if you set one up for
++  `next-scene-news`'s thumbnail generator, otherwise create a free account
++  at https://huggingface.co and generate a token (Settings -> Access
++  Tokens -> a "read" token is enough).
++- This isn't strictly required (the DiffRhythm Space can be called
++  anonymously), but an authenticated call gets a bigger, steadier free
++  ZeroGPU quota than an anonymous one.
++
++## 3. Pexels (real photos for the music video)
++
++- `PEXELS_API_KEY` -- reuse your existing key from `next-scene-news` if you
++  have one, otherwise get a free one at https://www.pexels.com/api/.
++
++## 4. YouTube upload (optional -- only needed once you're ready to publish)
++
++This channel (NEXT VIBE MUSIC) is a different YouTube channel from
++NEXTSCENE TV, so it needs its own OAuth credentials authorized against
++*that* channel's Google account -- you can't reuse the `next-scene-news`
++repo's YOUTUBE_* secrets here even if it's the same Google Cloud project.
++
++- Create OAuth credentials for a desktop application in Google Cloud
++  Console, enable **YouTube Data API v3**, and go through the OAuth consent
++  flow signed in as whichever Google account owns/manages NEXT VIBE MUSIC,
++  to get a refresh token for that channel.
++- Add:
++  - `YOUTUBE_CLIENT_ID`
++  - `YOUTUBE_CLIENT_SECRET`
++  - `YOUTUBE_REFRESH_TOKEN`
++- Leave **Upload to YouTube = false** for your first several test runs.
++  Every run (upload on or off) saves its result as a downloadable GitHub
++  Actions artifact, so you can listen to and watch the song before it ever
++  touches YouTube. Once you're happy with a run, turn upload on and start
++  with `private` visibility.
++
++## 5. Run it
++
++**GitHub -> this repo -> Actions -> Create Afro-Reggae Song -> Run workflow**
++
++Fill in a title, theme, mood, visual style, and a duration between 1.6 and
++4.75 minutes (DiffRhythm's supported range -- anything outside it gets
++clamped automatically). Leave "Upload to YouTube" unchecked for the first
++run.
+ 
+ ## 6. Cost
+ 
+-There are no paid AI APIs in this repository. ACE-Step, SDXL, FFmpeg, Python and the other software are used locally.
+-
+-The only unavoidable requirement is computing hardware. Your GT 730 is not powerful enough for this workload. A stronger NVIDIA GPU machine must be used as the self-hosted runner.
++Genuinely free with the credentials above -- Gemini, Hugging Face ZeroGPU,
++Pexels and YouTube all have free tiers this pipeline stays within for
++normal use. The one thing that isn't fully under your control is that the
++Hugging Face Space is a shared public resource, not dedicated compute --
++see the README for the trade-off and the fallback if it's ever unreliable.
+diff --git a/requirements-vision.txt b/requirements-vision.txt
+deleted file mode 100644
+index 885235b..0000000
+--- a/requirements-vision.txt
++++ /dev/null
+@@ -1,6 +0,0 @@
+-torch
+-transformers
+-accelerate
+-diffusers
+-safetensors
+-Pillow
+diff --git a/requirements.txt b/requirements.txt
+index f5f6be6..cfe1e9d 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,5 +1,4 @@
+ Pillow
+-numpy
+ requests
+ gradio_client
+ google-api-python-client
+diff --git a/scripts/generate_metadata.py b/scripts/generate_metadata.py
+index 8e5dec8..d9329e4 100644
+--- a/scripts/generate_metadata.py
++++ b/scripts/generate_metadata.py
+@@ -1,58 +1,212 @@
+-import json, os, re
++"""Generates real, theme-specific song lyrics/metadata with Gemini.
++
++Sept 15 2026: this used to be two hardcoded lyric templates ("English +
++Swahili" and "English") that returned the literal SAME "Sweet island
++loving..." lyrics every single run, completely ignoring the title/theme/mood
++inputs. That's why every song sounded identical regardless of what you typed
++into the workflow form -- it was never actually calling an AI. This rewrite
++calls Gemini for real, the same way generate-short.mjs / generate-
++documentary.mjs do in the next-scene-news repo, so lyrics genuinely follow
++the theme/mood you give it.
++
++Language note (Sept 15 2026): the free DiffRhythm model used for singing
++(see generate_music.py) only supports English and Chinese vocals -- its own
++built-in lyrics tool literally only offers those two languages, no Swahili.
++Singing Swahili lines through it would likely come out mispronounced/
++garbled since the model was never trained on it. So this generates English
++lyrics for now. Once the pipeline is proven end-to-end, mixing in Swahili
++phrases can be revisited (e.g. testing how the model actually handles a few
++Swahili words even though it's unsupported, or looking at other models).
++
++NOTE ON STRING FORMATTING: this file builds the Gemini prompt with plain
++string concatenation / f-strings around whole variables, NOT str.format()
++on a template containing a literal embedded JSON example. That's deliberate
++-- the thumbnail generator in next-scene-news had a real, reproduced bug
++where an embedded JSON example inside a .format() template crashed with a
++KeyError because its curly braces weren't escaped. Avoiding that pattern
++here sidesteps the whole class of bug rather than relying on remembering to
++escape every brace.
++"""
++
++import json
++import os
++import re
++import sys
+ from pathlib import Path
+ 
+-OUT = Path('output')
++import requests
++
++OUT = Path("output")
+ OUT.mkdir(exist_ok=True)
+ 
+-TEMPLATES = {
+-    'English + Swahili': {
+-        'verse1': 'Under the island moon, your hand is in mine,\nMoyo wangu, baby, your love is divine.',
+-        'chorus': 'Sweet island loving, come closer tonight,\nMapenzi ya kweli, everything feels right.\nSweet island loving, dancing by the sea,\nWewe na mimi, just you and me.',
+-        'verse2': 'Palm trees are moving while the warm wind calls,\nNakupenda sana, love has no walls.',
+-        'bridge': 'Hold me slowly, let the rhythm play,\nTupendane, until the break of day.'
+-    },
+-    'English': {
+-        'verse1': 'Under the island moon, your hand is in mine,\nYour love is shining and everything feels fine.',
+-        'chorus': 'Sweet island loving, come closer tonight,\nDancing by the ocean, everything feels right.\nSweet island loving, just you and me,\nLost in the rhythm beside the sea.',
+-        'verse2': 'Palm trees are moving while the warm wind calls,\nYour love is stronger than any walls.',
+-        'bridge': 'Hold me slowly, let the rhythm play,\nWe will keep dancing until the break of day.'
++GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
++GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
++
++title = os.getenv("SONG_TITLE", "Sweet Island Loving")
++theme = os.getenv("SONG_THEME", "Romantic island love under the African sunset")
++mood = os.getenv("SONG_MOOD", "Romantic, warm, uplifting")
++language = os.getenv("SONG_LANGUAGE", "English")
++style = os.getenv("VIDEO_STYLE", "African tropical island, cinematic, romantic, realistic")
++
++# DiffRhythm's Music_Duration input only accepts 95-285 seconds -- clamp
++# whatever the workflow was given into that range rather than letting an
++# out-of-range value fail deep inside generate_music.py.
++requested_minutes = max(1.0, float(os.getenv("SONG_DURATION_MIN", "2")))
++target_duration_seconds = max(95, min(285, int(requested_minutes * 60)))
++
++
++def _clean_json(raw: str) -> str:
++    raw = raw.strip()
++    if raw.startswith("```"):
++        raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
++        raw = re.sub(r"```$", "", raw)
++    return raw.strip()
++
++
++PROMPT_INTRO = (
++    "You are a professional songwriter for NEXT VIBE MUSIC, a channel of "
++    "original AI-produced Afro-Reggae / Lovers Rock love songs.\n\n"
++    "Write ONE original song for a music video. Return ONLY valid JSON, no "
++    "markdown fences, in this exact shape (all strings; lyrics_lines is an "
++    "array of short singable lines with NO section labels like [Chorus] "
++    "mixed into the text itself):\n\n"
++    '{\n'
++    '  "title": "a short catchy song title",\n'
++    '  "lyrics_lines": ["line one", "line two", "... 16 to 24 short singable lines covering verse/chorus/verse/chorus, each under 10 words"],\n'
++    '  "music_style_prompt": "one sentence describing the musical style/instrumentation for an AI music generator, e.g. warm Afro-Reggae with offbeat guitar skank, mellow bassline, African percussion, smooth romantic lead vocal",\n'
++    '  "scene_queries": ["6 short (2-5 word) stock-photo search queries for real photos matching this song\'s story/mood, e.g. couple beach sunset, tropical palm trees, ocean waves sunset"],\n'
++    '  "description": "a 2-3 sentence YouTube description for the video, mentioning it is an original AI-composed song",\n'
++    '  "tags": ["8-12 relevant YouTube tags as short strings"]\n'
++    '}\n\n'
++    "Keep every lyric line simple, warm and singable -- this goes straight "
++    "into an AI singing model, so avoid punctuation-heavy or awkward "
++    "phrasing.\n\n"
++)
++
++prompt = (
++    PROMPT_INTRO
++    + f'Song title (use as inspiration, you may improve it): "{title}"\n'
++    + f'Theme/story: {theme}\n'
++    + f'Mood: {mood}\n'
++    + f'Language: {language}\n'
++    + f'Visual style for the music video: {style}\n'
++)
++
++
++def analyze_with_gemini():
++    if not GEMINI_API_KEY:
++        print("[metadata] no GEMINI_API_KEY set, using rule-based fallback", file=sys.stderr)
++        return None
++    last_err = None
++    for model in GEMINI_MODELS:
++        try:
++            resp = requests.post(
++                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
++                headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
++                json={"contents": [{"parts": [{"text": prompt}]}]},
++                timeout=60,
++            )
++            resp.raise_for_status()
++            data = resp.json()
++            text = data["candidates"][0]["content"]["parts"][0]["text"]
++            parsed = json.loads(_clean_json(text))
++            print(f"[metadata] lyrics generated via {model}", file=sys.stderr)
++            return parsed
++        except Exception as err:  # noqa: BLE001 - deliberately broad, tries next model
++            last_err = err
++            print(f"[metadata] {model} failed: {err}, trying next model...", file=sys.stderr)
++    print(f"[metadata] all Gemini models failed ({last_err}), using rule-based fallback", file=sys.stderr)
++    return None
++
++
++def fallback_song():
++    """Non-fatal fallback if Gemini is unreachable/misconfigured -- keeps the
++    pipeline runnable (e.g. for a quick smoke test) instead of hard-crashing,
++    same philosophy as thumbnail-gen.mjs's fallback in next-scene-news. This
++    is intentionally generic; a real run should always have GEMINI_API_KEY
++    set so this path isn't the normal case."""
++    return {
++        "title": title,
++        "lyrics_lines": [
++            "Under the island moon your hand is in mine",
++            "Your love is shining and everything feels fine",
++            "Sweet island loving come closer tonight",
++            "Dancing by the ocean everything feels right",
++            "Sweet island loving just you and me",
++            "Lost in the rhythm beside the sea",
++            "Palm trees are moving while the warm wind calls",
++            "Your love is stronger than any walls",
++            "Sweet island loving come closer tonight",
++            "Dancing by the ocean everything feels right",
++            "Hold me slowly let the rhythm play",
++            "We will keep dancing until the break of day",
++        ],
++        "music_style_prompt": f"Afro-Reggae, {mood}, warm bass guitar, offbeat reggae guitar, African percussion, melodic lead vocal, polished studio production. No spoken intro.",
++        "scene_queries": [
++            "couple beach sunset",
++            "tropical palm trees",
++            "ocean waves sunset",
++            "beach bonfire night",
++            "african sunrise coastline",
++            "tropical island aerial",
++        ],
++        "description": f"{title} - an original Afro-Reggae love song, AI-composed and produced for NEXT VIBE MUSIC.",
++        "tags": ["Afro-Reggae", "Afrobeat", "Reggae", "African Music", "AI Music", "Tropical Music", "Love Song"],
+     }
+-}
+ 
+-def slug(s):
+-    return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')
+ 
+-title = os.getenv('SONG_TITLE', 'Sweet Island Loving')
+-theme = os.getenv('SONG_THEME', 'Romantic island love')
+-mood = os.getenv('SONG_MOOD', 'Romantic, warm, uplifting')
+-language = os.getenv('SONG_LANGUAGE', 'English + Swahili')
+-style = os.getenv('VIDEO_STYLE', 'African tropical island, cinematic, romantic, realistic')
++def build_lrc(lines, duration_seconds):
++    """Evenly time-stamps plain lyric lines into DiffRhythm's required
++    "[mm:ss.xx]text" LRC format. This is a simple, fully local/deterministic
++    step -- no extra API call needed just to timestamp lines -- leaving only
++    ONE external call (the actual singing generation) as something that can
++    fail. Leaves a short intro/outro pad so the song doesn't start singing
++    at 0:00 or run vocals right to the last frame."""
++    lines = [l.strip() for l in lines if l.strip()]
++    if not lines:
++        lines = ["La la la"]
++    intro_pad = min(4.0, duration_seconds * 0.05)
++    outro_pad = min(6.0, duration_seconds * 0.08)
++    usable = max(10.0, duration_seconds - intro_pad - outro_pad)
++    per_line = usable / len(lines)
++
++    def fmt(t):
++        m = int(t // 60)
++        s = t - m * 60
++        return f"[{m:02d}:{s:05.2f}]"
++
++    out = []
++    t = intro_pad
++    for line in lines:
++        out.append(f"{fmt(t)}{line}")
++        t += per_line
++    return "\n".join(out)
++
+ 
+-base = TEMPLATES.get(language, TEMPLATES['English'])
+-lyrics = f'''{title}\n\n[Verse 1]\n{base['verse1']}\n\n[Chorus]\n{base['chorus']}\n\n[Verse 2]\n{base['verse2']}\n\n[Chorus]\n{base['chorus']}\n\n[Bridge]\n{base['bridge']}\n\n[Final Chorus]\n{base['chorus']}'''
++analyzed = analyze_with_gemini() or fallback_song()
+ 
+-prompts = [
+-    f'{style}, romantic African couple walking on a tropical beach at golden sunset, cinematic music video, joyful, natural skin, realistic photography',
+-    f'{style}, Afro-Reggae beach party with dancers, palm trees, warm sunset, cinematic music video frame, realistic',
+-    f'{style}, romantic couple beside turquoise ocean, gentle waves, African tropical island, cinematic, realistic',
+-    f'{style}, night beach with lanterns and dancing, warm atmosphere, Afro-Reggae music video, cinematic realistic',
+-    f'{style}, sunrise over tropical African coastline, couple dancing together, hopeful romantic mood, cinematic realistic',
+-    f'{style}, wide final shot of tropical beach, ocean and palm trees, joyful Afro-Reggae celebration, cinematic realistic'
+-]
++fallback = fallback_song()
++lyrics_lines = analyzed.get("lyrics_lines") or fallback["lyrics_lines"]
++final_title = analyzed.get("title") or title
++lrc = build_lrc(lyrics_lines, target_duration_seconds)
++plain_lyrics = "\n".join(lyrics_lines)
+ 
+ data = {
+-    'title': title,
+-    'theme': theme,
+-    'mood': mood,
+-    'language': language,
+-    'video_style': style,
+-    'lyrics': lyrics,
+-    'music_prompt': f'Afro-Reggae, {mood}, warm bass guitar, offbeat reggae guitar, African percussion, melodic lead vocal, polished studio production, song about {theme}. No spoken intro.',
+-    'scene_prompts': prompts,
+-    'description': f'{title} — an original Afro-Reggae song about {theme}.\n\nAI-generated music and visuals created with open-source tools.\n\n#AfroReggae #AfricanMusic #Reggae #AIMusic',
+-    'tags': ['Afro-Reggae', 'Afrobeat', 'Reggae', 'African Music', 'AI Music', 'Tropical Music', 'Swahili Music']
++    "title": final_title,
++    "theme": theme,
++    "mood": mood,
++    "language": language,
++    "video_style": style,
++    "lyrics": plain_lyrics,
++    "lrc": lrc,
++    "target_duration_seconds": target_duration_seconds,
++    "music_style_prompt": analyzed.get("music_style_prompt") or fallback["music_style_prompt"],
++    "scene_queries": analyzed.get("scene_queries") or fallback["scene_queries"],
++    "description": analyzed.get("description") or f"{final_title} - an original Afro-Reggae love song, AI-composed and produced for NEXT VIBE MUSIC.",
++    "tags": analyzed.get("tags") or fallback["tags"],
+ }
+ 
+-(OUT / 'metadata.json').write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+-(OUT / 'lyrics.txt').write_text(lyrics, encoding='utf-8')
+-print(f'Created metadata for: {title}')
++(OUT / "metadata.json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
++(OUT / "lyrics.txt").write_text(plain_lyrics, encoding="utf-8")
++(OUT / "song.lrc").write_text(lrc, encoding="utf-8")
++print(f"Created metadata for: {final_title}")
+diff --git a/scripts/generate_music.py b/scripts/generate_music.py
+index 06f5c48..04902ba 100644
+--- a/scripts/generate_music.py
++++ b/scripts/generate_music.py
+@@ -1,9 +1,55 @@
++"""Generates the full sung song using DiffRhythm, a free open-source
++full-song (lyrics + vocals + instrumentation) model, via its public
++Hugging Face Space -- https://huggingface.co/spaces/ASLP-lab/DiffRhythm.
++
++Sept 15 2026: replaces the local ACE-Step 1.5 approach, which failed all 3
++times it was tried (the most recent failure was the local API never
++finishing startup within its 15-minute wait window on GitHub's free Windows
++runner). The core problem was architectural: ACE-Step needs real GPU compute
++to run in reasonable time, and neither GitHub's free runners nor this
++project's available hardware have one.
++
++DiffRhythm sidesteps that by NOT running locally at all -- the actual model
++runs on Hugging Face's free "ZeroGPU" shared GPU pool (this Space has had
++ZeroGPU access since March 2025), and this script just calls it like an API
++over the internet using `gradio_client`, the same way generate_scenes.py
++used to reach for a local SDXL pipeline. This machine (or the GitHub-hosted
++runner) never needs a GPU -- it's just sending a request and waiting for the
++result, which is normally fast (published benchmarks put a ~4-5 minute song
++at well under a minute of actual GPU time).
++
++Known limitation (Sept 15 2026): this Space's own lyrics-writing tool only
++lists English and Chinese as supported languages -- there's no Swahili
++option, which strongly suggests the underlying model wasn't trained on it.
++generate_metadata.py writes English-only lyrics for this reason. See the
++comment there for more.
++
++This also means generation quality/availability depends on a public,
++shared, free HF Space that isn't under Robert's control -- it could change
++its interface, get paused, or hit shared usage limits at busy times. That's
++a real trade-off of using a free shared resource instead of paid, dedicated
++compute. If this becomes unreliable in practice, the fallback is a small
++per-song paid vocal API (e.g. Suno's official API).
++
++IMPORTANT -- this call could not be live-tested from the environment that
++wrote this patch (its sandbox blocks huggingface.co outbound by policy, the
++same restriction that applies to unrelated services -- this is a sandbox
++policy, not a sign the service itself is down). The exact keyword names below
++come from reading the Space's own app.py source directly. The defensive
++introspection logging below is there specifically so that if the interface
++has changed a parameter name since, the failure shows up as a clear,
++readable error in the GitHub Actions log instead of a silent wrong result --
++check that log first if this step ever fails.
++"""
++
+ import json
+ import os
+-import time
++import shutil
++import subprocess
++import sys
+ from pathlib import Path
+ 
+-import requests
++from gradio_client import Client
+ 
+ OUT = Path("output")
+ OUT.mkdir(exist_ok=True)
+@@ -11,119 +57,113 @@ OUT.mkdir(exist_ok=True)
+ with open(OUT / "metadata.json", encoding="utf-8") as f:
+     meta = json.load(f)
+ 
+-BASE_URL = os.getenv("ACESTEP_BASE_URL", "http://127.0.0.1:8001")
+-API_KEY = os.getenv("ACESTEP_API_KEY", "")
+-MAX_SECONDS = int(os.getenv("ACESTEP_MAX_SECONDS", "120"))
+-requested_minutes = max(1, int(float(os.getenv("SONG_DURATION_MIN", "2"))))
+-duration = min(requested_minutes * 60, MAX_SECONDS)
+-
+-prompt = meta.get("music_prompt", "Afro-reggae song with warm bass, skank guitar and melodic vocals")
+-lyrics = meta.get("lyrics", "")
+-language_text = meta.get("language", os.getenv("SONG_LANGUAGE", "English + Swahili"))
+-language = "sw" if "Swahili" in language_text and "English" not in language_text else "en"
+-
+-headers = {"Content-Type": "application/json"}
+-if API_KEY:
+-    headers["Authorization"] = f"Bearer {API_KEY}"
+-
+-payload = {
+-    "prompt": prompt,
+-    "global_caption": prompt,
+-    "lyrics": lyrics,
+-    "thinking": True,
+-    "model": "acestep-v15-turbo",
+-    "vocal_language": language,
+-    "audio_duration": float(duration),
+-    "inference_steps": 8,
+-    "guidance_scale": 7.0,
+-    "use_random_seed": True,
+-    "audio_format": "mp3",
+-    "task_type": "text2music",
+-    "batch_size": 1,
+-    "lm_backend": "pt",
+-}
+-
+-print(f"Using LOCAL ACE-Step at {BASE_URL}")
+-print(f"CPU/local generation duration: {duration}s")
+-
+-health = requests.get(f"{BASE_URL}/health", timeout=20)
+-health.raise_for_status()
+-
+-created = requests.post(
+-    f"{BASE_URL}/release_task",
+-    headers=headers,
+-    json=payload,
+-    timeout=120,
++HF_TOKEN = os.environ.get("HF_TOKEN") or None  # optional, but gives a bigger/steadier free ZeroGPU quota than anonymous calls
++SPACE_ID = os.getenv("DIFFRHYTHM_SPACE", "ASLP-lab/DiffRhythm")
++
++lrc = meta.get("lrc", "")
++style_prompt = meta.get("music_style_prompt", "Warm Afro-Reggae with offbeat guitar skank, mellow bassline, African percussion, smooth romantic lead vocal")
++duration_seconds = float(meta.get("target_duration_seconds", 120))
++# DiffRhythm's own slider only accepts 95-285 seconds -- generate_metadata.py
++# already clamps to this range, but re-clamp here too in case this script
++# is ever run on an older metadata.json.
++duration_seconds = max(95.0, min(285.0, duration_seconds))
++
++if not lrc.strip():
++    raise RuntimeError("metadata.json has no lrc lyrics -- run generate_metadata.py first.")
++
++print(f"[music] connecting to {SPACE_ID}", file=sys.stderr)
++client = Client(SPACE_ID, hf_token=HF_TOKEN)
++
++api_info = {}
++try:
++    api_info = client.view_api(return_format="dict") or {}
++except Exception as err:  # noqa: BLE001 - introspection is best-effort logging, never fatal
++    print(f"[music] could not introspect API (continuing anyway): {err}", file=sys.stderr)
++
++endpoint_names = list((api_info.get("named_endpoints") or {}).keys())
++print(f"[music] available endpoints: {endpoint_names}", file=sys.stderr)
++
++# Prefer the exact name from the Space's source; fall back to any endpoint
++# that looks like the main song generator (and isn't the separate
++# lyrics-writing helper endpoints) if the exact name has since changed.
++api_name = "/infer_music"
++if endpoint_names and api_name not in endpoint_names:
++    guesses = [n for n in endpoint_names if "infer_music" in n.lower()]
++    if not guesses:
++        guesses = [n for n in endpoint_names if "infer" in n.lower() and "r1" not in n.lower() and "lyric" not in n.lower()]
++    if guesses:
++        print(f"[music] '/infer_music' not found, trying closest match: {guesses[0]}", file=sys.stderr)
++        api_name = guesses[0]
++    else:
++        raise RuntimeError(
++            f"Could not find the song-generation endpoint on {SPACE_ID}. "
++            f"Available endpoints were: {endpoint_names}. The Space's interface "
++            "may have changed -- check https://huggingface.co/spaces/ASLP-lab/DiffRhythm/blob/main/app.py "
++            "for the current function name and update api_name above."
++        )
++
++print(f"[music] requesting a {duration_seconds:.0f}s song via {api_name}", file=sys.stderr)
++
++result = client.predict(
++    lrc=lrc,
++    ref_audio_path=None,
++    text_prompt=style_prompt,
++    current_prompt_type="text",  # "text" (style-description) mode rather than "audio" (reference-clip) mode -- we have no reference audio
++    seed=0,
++    randomize_seed=True,
++    steps=32,
++    cfg_strength=4.0,
++    file_type="wav",
++    odeint_method="euler",
++    preference_infer="quality first",
++    Music_Duration=duration_seconds,
++    edit=False,
++    edit_segments=None,
++    api_name=api_name,
+ )
+-created.raise_for_status()
+-created_data = created.json()
+-task_id = created_data.get("data", {}).get("task_id")
+-if not task_id:
+-    raise RuntimeError(f"ACE-Step did not return task_id: {created_data!r}")
+-
+-print(f"Local ACE-Step task: {task_id}")
+-
+-deadline = time.time() + int(os.getenv("ACESTEP_TIMEOUT_SECONDS", "7200"))
+-result = None
+-while time.time() < deadline:
+-    time.sleep(15)
+-    response = requests.post(
+-        f"{BASE_URL}/query_result",
+-        headers=headers,
+-        json={"task_id_list": [task_id]},
+-        timeout=60,
+-    )
+-    response.raise_for_status()
+-    result = response.json()
+-    items = result.get("data", [])
+-    item = items[0] if items else {}
+-    status = item.get("status", 0)
+-    print(f"ACE-Step status: {status}")
+-    if status == 2:
+-        raise RuntimeError(f"Local ACE-Step generation failed: {result!r}")
+-    if status == 1:
+-        break
+-else:
+-    raise TimeoutError("Local ACE-Step generation timed out.")
+-
+-item = result["data"][0]
+-raw_result = item.get("result", "")
+-if isinstance(raw_result, str):
+-    try:
+-        result_items = json.loads(raw_result)
+-    except json.JSONDecodeError:
+-        result_items = []
+-else:
+-    result_items = raw_result
+-
+-if not result_items:
+-    raise RuntimeError(f"ACE-Step returned no audio result: {result!r}")
+ 
+-first = result_items[0]
+-audio_file = first.get("file") or first.get("path")
+-if not audio_file:
+-    raise RuntimeError(f"ACE-Step result contains no audio file: {first!r}")
+-
+-if audio_file.startswith("http"):
+-    audio_url = audio_file
++# The Audio output component can come back as a plain filepath string, or as
++# a dict/tuple wrapping one, depending on gradio_client version -- handle
++# whichever shape shows up rather than assuming one.
++audio_path = None
++if isinstance(result, str):
++    audio_path = result
++elif isinstance(result, (list, tuple)) and result:
++    first = result[0]
++    audio_path = first if isinstance(first, str) else (first.get("name") or first.get("path") if isinstance(first, dict) else None)
++elif isinstance(result, dict):
++    audio_path = result.get("name") or result.get("path")
++
++if not audio_path or not Path(audio_path).exists():
++    raise RuntimeError(f"DiffRhythm did not return a usable audio file. Raw result: {result!r}")
++
++print(f"[music] received generated audio: {audio_path}", file=sys.stderr)
++
++# Normalize to output/song.mp3 regardless of what format the Space returned
++# (requested wav, since that's guaranteed valid; convert here rather than
++# guessing at whichever format string the Space's file_type option expects).
++out = OUT / "song.mp3"
++if Path(audio_path).suffix.lower() == ".mp3":
++    shutil.copyfile(audio_path, out)
+ else:
+-    audio_url = f"{BASE_URL}{audio_file}" if audio_file.startswith("/") else audio_file
++    subprocess.run(
++        ["ffmpeg", "-y", "-i", str(audio_path), "-c:a", "libmp3lame", "-b:a", "192k", str(out)],
++        check=True,
++    )
+ 
+-audio = requests.get(audio_url, headers=headers, timeout=600)
+-audio.raise_for_status()
+-out = OUT / "song.mp3"
+-out.write_bytes(audio.content)
+-
+-(OUT / "acestep_result.json").write_text(
+-    json.dumps({
+-        "provider": "local ACE-Step 1.5",
+-        "model": "acestep-v15-turbo",
+-        "task_id": task_id,
+-        "duration_seconds": duration,
+-        "audio_file": audio_file,
+-        "result": result,
+-    }, indent=2, ensure_ascii=False, default=str),
++(OUT / "music_generation_result.json").write_text(
++    json.dumps(
++        {
++            "provider": "DiffRhythm (free Hugging Face ZeroGPU Space)",
++            "space": SPACE_ID,
++            "api_name": api_name,
++            "duration_seconds": duration_seconds,
++            "style_prompt": style_prompt,
++        },
++        indent=2,
++        ensure_ascii=False,
++    ),
+     encoding="utf-8",
+ )
+ 
+-print(f"Generated local song: {out}")
++print(f"Generated song: {out}")
+diff --git a/scripts/generate_scenes.py b/scripts/generate_scenes.py
+index da74610..2335a1e 100644
+--- a/scripts/generate_scenes.py
++++ b/scripts/generate_scenes.py
+@@ -1,7 +1,28 @@
++"""Fetches real photos for the music-video scenes from Pexels (free stock
++photo API, same service and API key pattern next-scene-news already uses
++for its video clips).
++
++Sept 15 2026: replaces the old SDXL-on-local-GPU path. That path could never
++actually run -- GitHub-hosted runners have no NVIDIA GPU, and it silently
++fell back to drawing plain color-gradient cards with text on them instead of
++real images. Real stock photography is a much better result for free, and
++it's the same approach that's already working reliably for the news
++channel's videos, just images instead of video clips.
++
++If PEXELS_API_KEY isn't set, or a particular search comes back empty, this
++still falls back to the old gradient card for THAT scene only, so a missing
++key or one unlucky query never blocks the whole run -- but the output
++directly reflects the query text used to fetch (in [square brackets] on the
++fallback card) so a run using fallback cards is obvious to spot in the
++generated artifact rather than looking like it worked.
++"""
++
+ import json
+ import math
++import os
+ from pathlib import Path
+ 
++import requests
+ from PIL import Image, ImageDraw, ImageFont
+ 
+ OUT = Path("output")
+@@ -11,76 +32,102 @@ SCENES.mkdir(parents=True, exist_ok=True)
+ with open(OUT / "metadata.json", encoding="utf-8") as f:
+     meta = json.load(f)
+ 
+-# GitHub-hosted runners do not provide the NVIDIA GPU needed for SDXL.
+-# Keep the pipeline fully runnable by creating clean cinematic visual cards
+-# when no local GPU is available. A GPU self-hosted runner can still opt into
+-# the original SDXL path with GENERATE_AI_SCENES=true.
+-try:
+-    import torch
+-    from diffusers import StableDiffusionXLPipeline
+-    gpu_available = torch.cuda.is_available()
+-except Exception:
+-    gpu_available = False
+-
+-use_ai = gpu_available and str(__import__("os").getenv("GENERATE_AI_SCENES", "false")).lower() == "true"
++PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
++title = meta.get("title", "Afro-Reggae")
++queries = meta.get("scene_queries") or meta.get("scene_prompts") or [
++    "couple beach sunset",
++    "tropical palm trees",
++    "ocean waves sunset",
++    "beach bonfire night",
++    "african sunrise coastline",
++    "tropical island aerial",
++]
+ 
+-if use_ai:
+-    import os
+-
+-    model_id = os.getenv("IMAGE_MODEL_ID", "stabilityai/stable-diffusion-xl-base-1.0")
+-    print(f"Loading image model: {model_id}")
+-    pipe = StableDiffusionXLPipeline.from_pretrained(
+-        model_id, torch_dtype=torch.float16, use_safetensors=True
+-    ).to("cuda")
+-    pipe.enable_attention_slicing()
+-
+-    for i, prompt in enumerate(meta["scene_prompts"], start=1):
+-        image = pipe(
+-            prompt=prompt,
+-            negative_prompt="text, watermark, logo, blurry, distorted hands, duplicate people, low quality",
+-            width=1280,
+-            height=720,
+-            num_inference_steps=25,
+-            guidance_scale=6.5,
+-        ).images[0]
+-        path = SCENES / f"scene_{i:02d}.jpg"
+-        image.save(path, quality=95)
+-        print(f"Created AI scene {path}")
+-else:
+-    title = meta.get("title", "Afro-Reggae")
+-    prompts = meta.get("scene_prompts", [])
+-    print("No local GPU available; creating lightweight cinematic visual cards.")
+ 
++def _fallback_card(path, query, index):
++    """Same gradient-card generator this file used to always use -- kept
++    only as a per-scene safety net now, not the normal path."""
++    width, height = 1280, 720
++    image = Image.new("RGB", (width, height))
++    pixels = image.load()
++    phase = index * 0.8
++    for y in range(height):
++        for x in range(width):
++            wave = (math.sin(x / 150 + phase) + math.sin(y / 95 + phase)) * 10
++            pixels[x, y] = (
++                max(0, min(255, int(35 + y / height * 45 + wave))),
++                max(0, min(255, int(75 + x / width * 55 + wave))),
++                max(0, min(255, int(55 + (1 - y / height) * 35 + wave))),
++            )
+     try:
+         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+         small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+     except Exception:
+         font = ImageFont.load_default()
+         small_font = ImageFont.load_default()
++    draw = ImageDraw.Draw(image, "RGBA")
++    draw.rectangle((55, 55, width - 55, height - 55), fill=(0, 0, 0, 80), outline=(255, 255, 255, 110), width=2)
++    draw.text((90, 90), title, font=font, fill=(255, 255, 255, 245))
++    draw.text((90, 155), f"[{query}]", font=small_font, fill=(255, 255, 255, 220))
++    draw.text((90, height - 80), f"AFRO-REGGAE • ORIGINAL AI MUSIC • SCENE {index:02d}", font=small_font, fill=(255, 255, 255, 210))
++    image.save(path, quality=94)
++    print(f"[scenes] fallback card for scene {index} (query: {query!r})")
+ 
+-    for i, prompt in enumerate(prompts, start=1):
+-        width, height = 1280, 720
+-        image = Image.new("RGB", (width, height))
+-        pixels = image.load()
+-        phase = i * 0.8
+-        for y in range(height):
+-            for x in range(width):
+-                wave = (math.sin(x / 150 + phase) + math.sin(y / 95 + phase)) * 10
+-                pixels[x, y] = (
+-                    max(0, min(255, int(35 + y / height * 45 + wave))),
+-                    max(0, min(255, int(75 + x / width * 55 + wave))),
+-                    max(0, min(255, int(55 + (1 - y / height) * 35 + wave))),
+-                )
+ 
+-        draw = ImageDraw.Draw(image, "RGBA")
+-        draw.rectangle((55, 55, width - 55, height - 55), fill=(0, 0, 0, 80), outline=(255, 255, 255, 110), width=2)
+-        draw.text((90, 90), title, font=font, fill=(255, 255, 255, 245))
+-        short_prompt = prompt.replace("\n", " ")[:170]
+-        draw.text((90, 155), short_prompt, font=small_font, fill=(255, 255, 255, 220))
+-        draw.text((90, height - 80), f"AFRO-REGGAE • ORIGINAL AI MUSIC • SCENE {i:02d}", font=small_font, fill=(255, 255, 255, 210))
++def _fetch_pexels_photo(query):
++    resp = requests.get(
++        "https://api.pexels.com/v1/search",
++        headers={"Authorization": PEXELS_API_KEY},
++        params={"query": query, "per_page": 3, "orientation": "landscape"},
++        timeout=30,
++    )
++    resp.raise_for_status()
++    photos = resp.json().get("photos", [])
++    if not photos:
++        return None
++    src = photos[0].get("src", {})
++    url = src.get("landscape") or src.get("large2x") or src.get("large") or src.get("original")
++    if not url:
++        return None
++    img_resp = requests.get(url, timeout=60)
++    img_resp.raise_for_status()
++    return img_resp.content
+ 
+-        path = SCENES / f"scene_{i:02d}.jpg"
+-        image.save(path, quality=94)
+-        print(f"Created fallback scene {path}")
++
++for i, query in enumerate(queries, start=1):
++    path = SCENES / f"scene_{i:02d}.jpg"
++    if not PEXELS_API_KEY:
++        _fallback_card(path, query, i)
++        continue
++    try:
++        raw = _fetch_pexels_photo(query)
++        if not raw:
++            print(f"[scenes] no Pexels results for {query!r}, using fallback card")
++            _fallback_card(path, query, i)
++            continue
++        tmp = SCENES / f"_raw_{i:02d}.jpg"
++        tmp.write_bytes(raw)
++        img = Image.open(tmp).convert("RGB")
++        # Cover-crop to 1280x720 so every scene has a consistent frame for
++        # assemble_video.py's zoompan effect, regardless of the source
++        # photo's native aspect ratio.
++        target_ratio = 1280 / 720
++        w, h = img.size
++        current_ratio = w / h
++        if current_ratio > target_ratio:
++            new_w = int(h * target_ratio)
++            x0 = (w - new_w) // 2
++            img = img.crop((x0, 0, x0 + new_w, h))
++        else:
++            new_h = int(w / target_ratio)
++            y0 = (h - new_h) // 2
++            img = img.crop((0, y0, w, y0 + new_h))
++        img = img.resize((1280, 720))
++        img.save(path, quality=95)
++        tmp.unlink(missing_ok=True)
++        print(f"[scenes] fetched Pexels photo for scene {i} (query: {query!r})")
++    except Exception as err:  # noqa: BLE001 - one bad photo shouldn't fail the whole run
++        print(f"[scenes] Pexels fetch failed for {query!r} ({err}), using fallback card")
++        _fallback_card(path, query, i)
+ 
+ print("Music-video scenes complete.")
+diff --git a/scripts/setup_local_acestep.ps1 b/scripts/setup_local_acestep.ps1
+deleted file mode 100644
+index 6ae21d4..0000000
+--- a/scripts/setup_local_acestep.ps1
++++ /dev/null
+@@ -1,36 +0,0 @@
+-$ErrorActionPreference = 'Stop'
+-
+-$aceDir = Join-Path $env:USERPROFILE 'ACE-Step-1.5'
+-
+-Write-Host '=== Local ACE-Step setup ==='
+-Write-Host "Install location: $aceDir"
+-
+-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+-    throw 'Git is required. Install Git for Windows first.'
+-}
+-
+-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+-    Write-Host 'Installing uv...'
+-    powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
+-    $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+-}
+-
+-if (-not (Test-Path $aceDir)) {
+-    Write-Host 'Downloading ACE-Step 1.5...'
+-    git clone https://github.com/ACE-Step/ACE-Step-1.5.git $aceDir
+-}
+-else {
+-    Write-Host 'ACE-Step folder already exists.'
+-}
+-
+-Set-Location $aceDir
+-
+-if (-not (Test-Path (Join-Path $aceDir '.venv'))) {
+-    Write-Host 'Installing ACE-Step dependencies. This can take a while on first run...'
+-    uv sync
+-}
+-else {
+-    Write-Host 'ACE-Step environment already installed.'
+-}
+-
+-Write-Host 'Local ACE-Step is ready.'

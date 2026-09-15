@@ -1,0 +1,99 @@
+diff --git a/scripts/generate-short.mjs b/scripts/generate-short.mjs
+index 30d9b22..8d8da72 100644
+--- a/scripts/generate-short.mjs
++++ b/scripts/generate-short.mjs
+@@ -23,7 +23,7 @@ import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "
+ import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
+ import { generateScript, generateGuessScript, generateMapClueScript } from "./lib/script-gen.mjs";
+ import { renderMapChallengeCards } from "./lib/map-challenge.mjs";
+-import { pickWithPriority } from "./lib/topic-history.mjs";
++import { pickWithPriority, peekQueuedKeys } from "./lib/topic-history.mjs";
+ import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
+ import { buildHashtags, buildTags } from "./lib/seo.mjs";
+ 
+@@ -506,8 +506,23 @@ async function main() {
+   // Manual override for testing/previewing a specific format on demand
+   // (set via the workflow_dispatch "format" input -> FORCE_SHORT_FORMAT env
+   // var). Unset/"auto" (including every scheduled run, which has no inputs)
+-  // falls through to the normal random roll below.
++  // falls through to the queue check, then the normal random roll below.
+   const forcedFormat = (process.env.FORCE_SHORT_FORMAT || "auto").toLowerCase();
++
++  // Sept 15 2026: check the priority queue BEFORE rolling the dice on a
++  // format. Previously the random roll happened first and only THEN did the
++  // chosen format's branch call pickWithPriority — so a topic queued under
++  // "topic" only went out on a run that also happened to roll the normal
++  // format, and could sit waiting through several map/guess runs in a row
++  // (with GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY at ~0.65, that's
++  // the more likely outcome, not an edge case). If something is queued,
++  // skip the roll entirely and force that format so the queued pick goes
++  // out on the very next run — "post this first" should mean the next run,
++  // not eventually. "topic" takes priority since that's what the queue has
++  // actually been used for; "guess"/"map" are honored the same way if ever
++  // queued.
++  const queuedKeys = forcedFormat === "auto" ? await peekQueuedKeys(PRIORITY_QUEUE_PATH) : {};
++
+   const formatRand = Math.random();
+   let isGuessFormat = formatRand < GUESS_FORMAT_PROBABILITY;
+   let isMapFormat = !isGuessFormat && formatRand < GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY;
+@@ -523,6 +538,18 @@ async function main() {
+     isGuessFormat = false;
+     isMapFormat = false;
+     console.log("[format] forced to normal topic format via FORCE_SHORT_FORMAT");
++  } else if (queuedKeys.topic) {
++    isGuessFormat = false;
++    isMapFormat = false;
++    console.log("[format] a trending topic is queued — forcing normal topic format instead of the random roll");
++  } else if (queuedKeys.guess) {
++    isGuessFormat = true;
++    isMapFormat = false;
++    console.log("[format] a queued pick is waiting for Guess the Country — forcing that format instead of the random roll");
++  } else if (queuedKeys.map) {
++    isGuessFormat = false;
++    isMapFormat = true;
++    console.log("[format] a queued pick is waiting for Map Challenge — forcing that format instead of the random roll");
+   }
+   let topic, script;
+ 
+diff --git a/scripts/lib/topic-history.mjs b/scripts/lib/topic-history.mjs
+index f4a1cb6..49d485f 100644
+--- a/scripts/lib/topic-history.mjs
++++ b/scripts/lib/topic-history.mjs
+@@ -127,6 +127,37 @@ async function writePriorityQueue(priorityPath, queue) {
+  * @param {string} priorityKey
+  * @returns {Promise<string>} the chosen topic
+  */
++// Sept 15 2026: added because generate-short.mjs picks its FORMAT (normal
++// topic vs. "Guess the Country" vs. "Map Challenge") via a random roll
++// BEFORE it ever calls pickWithPriority for that format's pool — so a
++// topic queued under "topic" only actually got used on a run where the
++// dice also happened to land on the normal-topic format. With
++// GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY at ~0.65, a queued
++// trending topic could sit waiting through several map/guess runs in a
++// row (this is exactly what Robert saw: map videos kept coming out while
++// the queued trending topics never did). This lets the format picker
++// check, non-destructively, whether something is queued for a given key
++// BEFORE rolling the dice, so it can skip the roll and force that format
++// instead — a queued pick then goes out on the very next run, which is
++// the whole point of the queue.
++//
++// @param {string} priorityPath
++// @returns {Promise<Record<string, boolean>>} which keys have >=1 pick waiting
++export async function peekQueuedKeys(priorityPath) {
++  const queue = await readPriorityQueue(priorityPath);
++  const result = {};
++  for (const key of Object.keys(queue)) {
++    const value = queue[key];
++    const pending = Array.isArray(value)
++      ? value.filter((v) => typeof v === "string" && v.trim())
++      : typeof value === "string" && value.trim()
++        ? [value]
++        : [];
++    result[key] = pending.length > 0;
++  }
++  return result;
++}
++
+ export async function pickWithPriority(pool, historyPath, priorityPath, priorityKey) {
+   const queue = await readPriorityQueue(priorityPath);
+   const queued = queue[priorityKey];
