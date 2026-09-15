@@ -23,7 +23,7 @@ import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "
 import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
 import { generateScript, generateGuessScript, generateMapClueScript } from "./lib/script-gen.mjs";
 import { renderMapChallengeCards } from "./lib/map-challenge.mjs";
-import { pickAndRecordTopic } from "./lib/topic-history.mjs";
+import { pickWithPriority } from "./lib/topic-history.mjs";
 import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
 import { buildHashtags, buildTags } from "./lib/seo.mjs";
 
@@ -47,6 +47,12 @@ const TOPIC_HISTORY_GUESS_PATH = path.join(__dirname, "..", "state", "topic-hist
 // its own answer pool/rotation, independent of both the normal topic pool
 // and the "Guess the Country" pool.
 const TOPIC_HISTORY_MAP_PATH = path.join(__dirname, "..", "state", "topic-history-short-map.json");
+
+// Sept 15 2026: one shared "post this next" queue for all 3 Shorts formats
+// (keys: "topic", "guess", "map") — see pickWithPriority in
+// lib/topic-history.mjs. Checked before the normal LRU pick every run;
+// empty/all-null is the default state and behaves exactly as before.
+const PRIORITY_QUEUE_PATH = path.join(__dirname, "..", "state", "priority-queue-short.json");
 
 // Punchy single-fact/single-country topics — deliberately NOT full Top-10
 // lists (those need the full ~60-90s runtime to land). Extend freely, the
@@ -521,7 +527,7 @@ async function main() {
   let topic, script;
 
   if (isGuessFormat) {
-    const country = await pickAndRecordTopic(SHORT_GUESS_POOL.map((c) => c.name), TOPIC_HISTORY_GUESS_PATH);
+    const country = await pickWithPriority(SHORT_GUESS_POOL.map((c) => c.name), TOPIC_HISTORY_GUESS_PATH, PRIORITY_QUEUE_PATH, "guess");
     const countryInfo = SHORT_GUESS_POOL.find((c) => c.name === country);
     topic = `[Guess the Country] ${country}`;
     console.log(`[topic] ${topic}`);
@@ -582,7 +588,7 @@ async function main() {
     }
     script = { title: guess.title, keywords: guess.keywords, segments: guessSegments };
   } else if (isMapFormat) {
-    const country = await pickAndRecordTopic(MAP_CHALLENGE_POOL.map((c) => c.name), TOPIC_HISTORY_MAP_PATH);
+    const country = await pickWithPriority(MAP_CHALLENGE_POOL.map((c) => c.name), TOPIC_HISTORY_MAP_PATH, PRIORITY_QUEUE_PATH, "map");
     const countryInfo = MAP_CHALLENGE_POOL.find((c) => c.name === country);
     topic = `[Map Challenge] ${country}`;
     console.log(`[topic] ${topic}`);
@@ -637,7 +643,7 @@ async function main() {
     }
     script = { title: mapScript.title, keywords: mapScript.keywords, segments: mapSegments };
   } else {
-    topic = await pickAndRecordTopic(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH);
+    topic = await pickWithPriority(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH, PRIORITY_QUEUE_PATH, "topic");
     console.log(`[topic] ${topic}`);
 
     console.log("[script] generating with Gemini (short form)...");

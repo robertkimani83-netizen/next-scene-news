@@ -74,3 +74,73 @@ export async function pickAndRecordTopic(pool, historyPath) {
   await writeHistory(historyPath, history);
   return chosen;
 }
+
+async function readPriorityQueue(priorityPath) {
+  try {
+    return JSON.parse(await fs.readFile(priorityPath, "utf-8"));
+  } catch {
+    return {}; // no queue file yet, or nothing queued — every key reads as unset
+  }
+}
+
+async function writePriorityQueue(priorityPath, queue) {
+  await fs.mkdir(path.dirname(priorityPath), { recursive: true });
+  await fs.writeFile(priorityPath, JSON.stringify(queue, null, 2) + "\n", "utf-8");
+}
+
+// Sept 15 2026: added so a genuinely trending topic/country (spotted via
+// vidIQ, checked on request) can jump straight to the front of the queue
+// instead of waiting its turn in the normal least-recently-used rotation —
+// Robert asked for exactly this ("if there is a trending thing let it come
+// be posted first"). This is intentionally a manual, human-in-the-loop
+// queue rather than a live trend-API call from inside the pipeline: no new
+// dependency or API credential to keep working unattended, and a person
+// (or Claude, when asked) is the one deciding something is actually worth
+// jumping the line for, not an unsupervised heuristic.
+//
+/**
+ * Same contract as pickAndRecordTopic, but first checks `priorityPath` for a
+ * manually-queued "post this next" value under `priorityKey`. If one is
+ * queued (a non-empty string), it's used immediately, cleared from the
+ * queue file, and — if it's also a real member of `pool` — recorded into
+ * the normal LRU history too, so the regular rotation stays correct
+ * afterward and this pick doesn't look "never used" and get immediately
+ * re-picked. If nothing is queued, this behaves exactly like
+ * pickAndRecordTopic.
+ *
+ * Queue files are plain JSON, e.g. `{ "topic": "The country everyone is
+ * suddenly talking about this week" }` — see state/priority-queue-short.json
+ * and state/priority-queue-long.json, and the "Post something trending
+ * first" section of the pipeline README for how these get set.
+ *
+ * @param {string[]} pool
+ * @param {string} historyPath
+ * @param {string} priorityPath
+ * @param {string} priorityKey
+ * @returns {Promise<string>} the chosen topic
+ */
+export async function pickWithPriority(pool, historyPath, priorityPath, priorityKey) {
+  const queue = await readPriorityQueue(priorityPath);
+  const queued = queue[priorityKey];
+
+  if (typeof queued === "string" && queued.trim()) {
+    const chosen = queued.trim();
+    console.log(`[topic] using queued priority pick for "${priorityKey}": ${chosen}`);
+
+    queue[priorityKey] = null;
+    await writePriorityQueue(priorityPath, queue);
+
+    if (pool.includes(chosen)) {
+      const history = await readHistory(historyPath);
+      history[chosen] = new Date().toISOString();
+      for (const key of Object.keys(history)) {
+        if (!pool.includes(key)) delete history[key];
+      }
+      await writeHistory(historyPath, history);
+    }
+
+    return chosen;
+  }
+
+  return pickAndRecordTopic(pool, historyPath);
+}

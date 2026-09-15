@@ -90,6 +90,15 @@ jobs:
           if [ -f state/topic-history-short-map.json ]; then
             git add state/topic-history-short-map.json
           fi
+          # priority-queue-short.json (pickWithPriority in
+          # lib/topic-history.mjs) — committed here too, since a queued
+          # "post this next" pick gets cleared back to null the moment a run
+          # consumes it. Without this commit that consumption never
+          # persists and the same queued pick would just get reused forever
+          # on every subsequent run.
+          if [ -f state/priority-queue-short.json ]; then
+            git add state/priority-queue-short.json
+          fi
           if ! git diff --cached --quiet; then
             git commit -m "Update Shorts topic history [skip ci]"
             git pull --rebase origin main

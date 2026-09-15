@@ -80,6 +80,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add state/topic-history-long.json
+          # priority-queue-long.json (pickWithPriority in
+          # lib/topic-history.mjs) — a queued "post this next" pick gets
+          # cleared back to null the moment a run consumes it, and that
+          # needs committing too or the same pick would just get reused
+          # forever on every subsequent run.
+          if [ -f state/priority-queue-long.json ]; then
+            git add state/priority-queue-long.json
+          fi
           if ! git diff --cached --quiet; then
             git commit -m "Update long-form topic history [skip ci]"
             git pull --rebase origin main

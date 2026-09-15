@@ -35,7 +35,7 @@ import {
   extractThumbnail,
 } from "./lib/ffmpeg-build.mjs";
 import { generateScript } from "./lib/script-gen.mjs";
-import { pickAndRecordTopic } from "./lib/topic-history.mjs";
+import { pickWithPriority } from "./lib/topic-history.mjs";
 import {
   uploadToYouTube,
   getOrCreatePlaylist,
@@ -55,6 +55,18 @@ const TOPIC_HISTORY_PATH = path.join(
   "..",
   "state",
   "topic-history-long.json"
+);
+
+// Sept 15 2026: "post this next" queue for the long-form pipeline — same
+// mechanism and reasoning as PRIORITY_QUEUE_PATH in generate-short.mjs, see
+// pickWithPriority in lib/topic-history.mjs. Separate file from the Shorts
+// one so the two pipelines (separate workflows, separate schedules) never
+// touch the same file.
+const PRIORITY_QUEUE_PATH = path.join(
+  __dirname,
+  "..",
+  "state",
+  "priority-queue-long.json"
 );
 
 // Python thumbnail compositor.
@@ -275,9 +287,11 @@ async function main() {
   );
 
   const topic =
-    await pickAndRecordTopic(
+    await pickWithPriority(
       TOPIC_POOL,
-      TOPIC_HISTORY_PATH
+      TOPIC_HISTORY_PATH,
+      PRIORITY_QUEUE_PATH,
+      "topic"
     );
 
   console.log(
