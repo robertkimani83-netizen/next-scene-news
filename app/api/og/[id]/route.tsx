@@ -35,6 +35,13 @@ const HEADLINE_FONT_FAMILY = "VOX254Headline";
 const FONT_FAMILY_STACK = `${REAL_FONT_FAMILY}, ${HEADLINE_FONT_FAMILY}, sans-serif`;
 const FONT_FILE_PATH = path.join(process.cwd(), "assets", "fonts", "Anton-Regular.ttf");
 const headlineFontBase64 = fs.readFileSync(FONT_FILE_PATH).toString("base64");
+
+// Real VOX254 logo mark (the same square "V" icon used as the Facebook Page
+// profile photo) embedded directly in the card instead of a plain "V254"
+// text badge, so the corner watermark matches actual branding.
+const LOGO_ICON_BASE64 = fs
+  .readFileSync(path.join(process.cwd(), "public", "vox254_icon.png"))
+  .toString("base64");
 const FONT_FACE_STYLE = `<style>@font-face{font-family:'${HEADLINE_FONT_FAMILY}';src:url(data:font/truetype;charset=utf-8;base64,${headlineFontBase64}) format('truetype');}text,tspan{font-family:'${FONT_FAMILY_STACK}';}</style>`;
 
 let fontConfigStatus = "not-attempted";
@@ -180,8 +187,7 @@ function buildOverlaySvg(
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   ${FONT_FACE_STYLE}
   ${background}
-  <rect x="28" y="28" width="145" height="46" rx="10" fill="#071526" fill-opacity="0.92"/>
-  <text x="48" y="59" font-family="${FONT_FAMILY_STACK}" font-size="21" font-weight="900" fill="#ffffff">V<tspan fill="#f5c518">254</tspan></text>
+  <image x="28" y="28" width="64" height="64" href="data:image/png;base64,${LOGO_ICON_BASE64}"/>
 
   <rect x="${WIDTH - 135}" y="28" width="107" height="42" rx="21" fill="#f5c518"/>
   <text x="${WIDTH - 81}" y="55" text-anchor="middle" font-family="${FONT_FAMILY_STACK}" font-size="15" font-weight="900" letter-spacing="2" fill="#111111">${escapeXml(categoryLabel)}</text>
