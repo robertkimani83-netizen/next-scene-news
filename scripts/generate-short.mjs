@@ -204,6 +204,22 @@ const SHORT_TOPIC_POOL = [
   "Africa vs Europe: which continent actually has more natural resources?",
   "USA vs China vs India: which superpower actually comes out on top?",
   "Dubai in 1990 versus Dubai today",
+  // Sept 15 2026: a map-distortion/map-literacy wave, added after checking
+  // vidIQ's outlier and similar-video data for this niche — several
+  // channels are getting outsized reach right now on exactly this angle
+  // (a "Why Togo wants the world to redraw its maps" piece on Al Jazeera
+  // sits at 1M+ views/breakoutScore 32; a "Countries That Look Tiny But Are
+  // Huge" video on a similar-sized channel is running a ~422 views-per-hour
+  // pace; "I Used to Know EVERY Country... Can I Still Name Them?" is at
+  // breakoutScore 284). It's a close cousin of this channel's existing Map
+  // Challenge format (same "map" hook) but works as a plain narrative
+  // single-fact topic too, so it slots into SHORT_TOPIC_POOL directly with
+  // zero pipeline changes needed.
+  "The countries that look tiny on a map but are actually enormous in real life",
+  "Why the world map you grew up with is quietly wrong",
+  "The real size of Africa compared to how small it looks on most maps",
+  "The country most people couldn't find on a map if their life depended on it",
+  "How many countries can you actually name off the top of your head",
 ];
 
 // Maps a subset of SHORT_TOPIC_POOL topics to a named recurring series.
@@ -327,14 +343,54 @@ const SHORT_GUESS_POOL = [
   { name: "Fiji", countryCode: "fj" },
   { name: "Jordan", countryCode: "jo" },
   { name: "Armenia", countryCode: "am" },
+  // Sept 15 2026: pool roughly doubled to keep the rotation feeling fresh
+  // now that GUESS_FORMAT_PROBABILITY is higher (more of these get used per
+  // week). Same selection rule as the original 20 — guessable-but-not-instant,
+  // spread across continents, nothing everyone names in one second.
+  { name: "Nepal", countryCode: "np" },
+  { name: "Sri Lanka", countryCode: "lk" },
+  { name: "Cambodia", countryCode: "kh" },
+  { name: "Myanmar", countryCode: "mm" },
+  { name: "Ecuador", countryCode: "ec" },
+  { name: "Panama", countryCode: "pa" },
+  { name: "Costa Rica", countryCode: "cr" },
+  { name: "Jamaica", countryCode: "jm" },
+  { name: "Iceland", countryCode: "is" },
+  { name: "Cyprus", countryCode: "cy" },
+  { name: "Malta", countryCode: "mt" },
+  { name: "Luxembourg", countryCode: "lu" },
+  { name: "Qatar", countryCode: "qa" },
+  { name: "Kuwait", countryCode: "kw" },
+  { name: "Georgia", countryCode: "ge" },
+  { name: "Moldova", countryCode: "md" },
+  { name: "Tunisia", countryCode: "tn" },
+  { name: "Senegal", countryCode: "sn" },
+  { name: "Ghana", countryCode: "gh" },
+  { name: "Zambia", countryCode: "zm" },
+  { name: "Mauritius", countryCode: "mu" },
+  { name: "Seychelles", countryCode: "sc" },
+  { name: "Papua New Guinea", countryCode: "pg" },
+  { name: "Vanuatu", countryCode: "vu" },
+  { name: "Belize", countryCode: "bz" },
+  { name: "Guyana", countryCode: "gy" },
+  { name: "Tajikistan", countryCode: "tj" },
+  { name: "Turkmenistan", countryCode: "tm" },
+  { name: "Uzbekistan", countryCode: "uz" },
+  { name: "Albania", countryCode: "al" },
+  { name: "Montenegro", countryCode: "me" },
 ];
 
-// Roughly 1 in 4 Shorts is a "Guess the Country" challenge instead of the
-// usual single-fact format — a genuinely different structure (clue segments
-// on a mystery card, a 3-2-1 countdown, then a flag/footage reveal), not
-// just a different topic, so it needs to stay a minority of uploads rather
-// than replace the existing format outright.
-const GUESS_FORMAT_PROBABILITY = 0.25;
+// Sept 15 2026: raised from 0.25 — vidIQ analytics on this exact channel
+// showed the "Guess the Country"/"Map Challenge" mystery formats pulling
+// 100-600+ views in the last 30 days versus 0-50 for most single-fact
+// narrative Shorts (the Shorts algorithmic feed drives ~80% of the
+// channel's views, and it's clearly rewarding the interactive hook). Kept
+// below 1-in-3 rather than higher, and narrative topics kept as a real
+// minority rather than removed outright, because this channel's single
+// best-performing video this same month ("How This Rejected Island Became
+// a Billionaire Playground") was a narrative piece, not a mystery format —
+// a strong curiosity-gap narrative title still wins sometimes.
+const GUESS_FORMAT_PROBABILITY = 0.32;
 
 // Answer pool for the "Map Challenge" series (see generateMapClueScript in
 // lib/script-gen.mjs and lib/map-challenge.mjs) — same countries as
@@ -364,16 +420,61 @@ const MAP_CHALLENGE_POOL = [
   { name: "Fiji", countryCode: "fj" },
   { name: "Jordan", countryCode: "jo" },
   { name: "Armenia", countryCode: "am" },
+  // Sept 15 2026: same expansion as SHORT_GUESS_POOL above, for the same
+  // reason (higher MAP_FORMAT_PROBABILITY means faster cycling). Every name
+  // below was checked against world-atlas's countries-50m.json
+  // `properties.name` values directly before adding — map-challenge.mjs
+  // throws loudly at render time on any mismatch, so this list must always
+  // use that dataset's exact spelling, not a country's common/official name.
+  { name: "Nepal", countryCode: "np" },
+  { name: "Sri Lanka", countryCode: "lk" },
+  { name: "Cambodia", countryCode: "kh" },
+  { name: "Myanmar", countryCode: "mm" },
+  { name: "Ecuador", countryCode: "ec" },
+  { name: "Panama", countryCode: "pa" },
+  { name: "Costa Rica", countryCode: "cr" },
+  { name: "Jamaica", countryCode: "jm" },
+  { name: "Iceland", countryCode: "is" },
+  { name: "Cyprus", countryCode: "cy" },
+  { name: "Malta", countryCode: "mt" },
+  { name: "Luxembourg", countryCode: "lu" },
+  { name: "Qatar", countryCode: "qa" },
+  { name: "Kuwait", countryCode: "kw" },
+  { name: "Georgia", countryCode: "ge" },
+  { name: "Moldova", countryCode: "md" },
+  { name: "Tunisia", countryCode: "tn" },
+  { name: "Senegal", countryCode: "sn" },
+  { name: "Ghana", countryCode: "gh" },
+  { name: "Zambia", countryCode: "zm" },
+  { name: "Mauritius", countryCode: "mu" },
+  { name: "Seychelles", countryCode: "sc" },
+  { name: "Papua New Guinea", countryCode: "pg" },
+  { name: "Vanuatu", countryCode: "vu" },
+  { name: "Belize", countryCode: "bz" },
+  { name: "Guyana", countryCode: "gy" },
+  { name: "Tajikistan", countryCode: "tj" },
+  { name: "Turkmenistan", countryCode: "tm" },
+  { name: "Uzbekistan", countryCode: "uz" },
+  { name: "Albania", countryCode: "al" },
+  { name: "Montenegro", countryCode: "me" },
 ];
 
 // A genuinely different structure again from both other formats: no mystery
 // card, no countdown — a real, accurate map graphic zooms progressively
 // closer on the (unlabeled) answer country across 3 clue segments, then a
-// full-zoom reveal. Kept a minority of uploads, same reasoning as
-// GUESS_FORMAT_PROBABILITY. The two probabilities are drawn from the same
-// roll (see isGuessFormat/isMapFormat in main()) so they never overlap —
+// full-zoom reveal. The two probabilities are drawn from the same roll (see
+// isGuessFormat/isMapFormat in main()) so they never overlap —
 // GUESS_FORMAT_PROBABILITY + MAP_FORMAT_PROBABILITY must stay <= 1.
-const MAP_FORMAT_PROBABILITY = 0.2;
+//
+// Sept 15 2026: raised from 0.2 — same vidIQ data as GUESS_FORMAT_PROBABILITY
+// above, and if anything the map-zoom format is the stronger of the two on
+// this channel ("Name This Country Before the Map Stops Zooming!" was the
+// single highest-viewed Short in the last 30 days among the mystery
+// formats). Combined with GUESS_FORMAT_PROBABILITY this puts roughly 2 in 3
+// Shorts into a mystery format and leaves 1 in 3 as narrative — a real
+// shift toward what's proven to work without abandoning the format that
+// still occasionally produces the channel's single best video.
+const MAP_FORMAT_PROBABILITY = 0.33;
 
 // Background photo behind the intro card — same idea as the long-form
 // pipeline's INTRO_BG_QUERY; non-fatal if nothing is found, renderTitleCard
