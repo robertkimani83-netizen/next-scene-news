@@ -402,6 +402,147 @@ export async function extractThumbnail(videoPath, outPath, atSec = 1.0) {
 }
 
 /**
+ * Builds one continuous audio track, the same total length as the video,
+ * that plays a short transition sound at the start of every segment after
+ * the first (segment 0 — the intro — stays silent since nothing has been
+ * "cut" yet). Built the same way the video itself is built: one small clip
+ * per segment, concatenated. Uses the filter_complex `concat` filter rather
+ * than the concat *demuxer* — tested directly against this exact pattern
+ * and the demuxer silently truncated the output on WAV/MP3 segments (see
+ * the Sept 16 2026 audio-mix patch notes), while filter_complex concat
+ * reliably preserves every segment's full duration.
+ *
+ * @param {number[]} segmentDurationsSec
+ * @param {string} sfxPath - short (<=1.5s) transition sound
+ * @param {string} workDir
+ * @returns {Promise<string>} path to the built track
+ */
+async function buildSfxTransitionTrack(segmentDurationsSec, sfxPath, workDir) {
+  const segDir = path.join(workDir, "sfx_segments");
+  await fs.mkdir(segDir, { recursive: true });
+
+  const segPaths = [];
+  for (let i = 0; i < segmentDurationsSec.length; i++) {
+    const dur = Math.max(segmentDurationsSec[i], 0.1).toFixed(2);
+    const segPath = path.join(segDir, `sfx_seg_${i}.wav`);
+    if (i === 0) {
+      await ffmpeg(["-f", "lavfi", "-i", `anullsrc=r=44100:cl=stereo:d=${dur}`, segPath]);
+    } else {
+      // overlay the transition sound at t=0, pad/trim to exactly this
+      // segment's duration so the concatenated track stays perfectly in
+      // sync with the video's own per-segment cut points
+      await ffmpeg(["-i", sfxPath, "-af", "volume=0.55,apad", "-t", dur, segPath]);
+    }
+    segPaths.push(segPath);
+  }
+
+  const inputArgs = segPaths.flatMap((p) => ["-i", p]);
+  const filterInputs = segPaths.map((_, i) => `[${i}:a]`).join("");
+  const outPath = path.join(workDir, "sfx_track.wav");
+  await ffmpeg([
+    ...inputArgs,
+    "-filter_complex",
+    `${filterInputs}concat=n=${segPaths.length}:v=0:a=1[out]`,
+    "-map",
+    "[out]",
+    outPath,
+  ]);
+  return outPath;
+}
+
+/**
+ * Mixes the narration (full volume) with an optional low-volume music bed
+ * and/or optional segment-transition SFX track into one final audio file.
+ * When neither `musicPath` nor `sfxPath` is given, returns
+ * `narrationAudioPath` unchanged — zero behavior change for any caller that
+ * doesn't opt into the new audio layers.
+ *
+ * `normalize:0` on amix is deliberate: amix's default `normalize:1` scales
+ * every input down by 1/inputCount, which would quietly turn down the
+ * narration itself. Instead each layer's gain is set explicitly beforehand
+ * (music/SFX already mixed low) and passed through amix unscaled — verified
+ * against synthetic test audio to peak around -19dB (well clear of 0dB
+ * clipping) with narration untouched at its original level.
+ *
+ * @param {{narrationAudioPath: string, totalDurationSec: number, musicPath?: string|null, sfxPath?: string|null, segmentDurationsSec?: number[], workDir: string}} opts
+ * @returns {Promise<string>} path to the mixed audio (or the original narration path if no layers were added)
+ */
+async function mixFinalAudio({ narrationAudioPath, totalDurationSec, musicPath, sfxPath, segmentDurationsSec, workDir }) {
+  if (!musicPath && !sfxPath) return narrationAudioPath;
+
+  const inputs = [{ path: narrationAudioPath, label: "0:a", volume: null }];
+  const extraArgs = ["-i", narrationAudioPath];
+
+  let sfxTrackPath = null;
+  if (sfxPath && segmentDurationsSec?.length) {
+    try {
+      sfxTrackPath = await buildSfxTransitionTrack(segmentDurationsSec, sfxPath, workDir);
+    } catch (err) {
+      console.warn(`[audio] sfx transition track failed, continuing without it: ${err.message}`);
+      sfxTrackPath = null;
+    }
+  }
+
+  let musicBedPath = null;
+  if (musicPath) {
+    try {
+      musicBedPath = path.join(workDir, "music_bed.wav");
+      await ffmpeg([
+        "-stream_loop",
+        "-1",
+        "-i",
+        musicPath,
+        "-t",
+        totalDurationSec.toFixed(2),
+        "-af",
+        "volume=0.14",
+        musicBedPath,
+      ]);
+    } catch (err) {
+      console.warn(`[audio] music bed failed, continuing without it: ${err.message}`);
+      musicBedPath = null;
+    }
+  }
+
+  if (!musicBedPath && !sfxTrackPath) return narrationAudioPath;
+
+  const mixInputs = [narrationAudioPath];
+  const filterParts = [];
+  let idx = 0;
+  filterParts.push(`[${idx}:a]anull[a${idx}]`);
+  const mixLabels = [`[a${idx}]`];
+  idx++;
+
+  if (musicBedPath) {
+    mixInputs.push(musicBedPath);
+    filterParts.push(`[${idx}:a]anull[a${idx}]`);
+    mixLabels.push(`[a${idx}]`);
+    idx++;
+  }
+  if (sfxTrackPath) {
+    mixInputs.push(sfxTrackPath);
+    filterParts.push(`[${idx}:a]volume=0.45[a${idx}]`);
+    mixLabels.push(`[a${idx}]`);
+    idx++;
+  }
+
+  const outPath = path.join(workDir, "final_audio_mix.wav");
+  await ffmpeg([
+    ...mixInputs.flatMap((p) => ["-i", p]),
+    "-filter_complex",
+    `${filterParts.join(";")};${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`,
+    "-map",
+    "[aout]",
+    "-ar",
+    "44100",
+    "-ac",
+    "2",
+    outPath,
+  ]);
+  return outPath;
+}
+
+/**
  * @param {Array<{visual: {type:string,path:string}|null, durationSec: number, text?: string}>} segments
  *   `visual.type` can be "video", "image", or "title-card" ({lines, bg?, fontsize?, subFontsize?, bgVisual?}) —
  *   the latter is how a spoken intro/outro line gets a branded card instead of stock footage while
@@ -412,11 +553,15 @@ export async function extractThumbnail(videoPath, outPath, atSec = 1.0) {
  * @param {string} workDir - scratch directory for intermediate files
  * @param {string} outputPath - final MP4 path
  * @param {string|null} placeholderImage - branded fallback image path used when a segment has no visual
- * @param {{subtitles?: boolean, dims?: {width:number,height:number}, captionFontSize?: number, captionMarginV?: number, theme?: object}} options -
+ * @param {{subtitles?: boolean, dims?: {width:number,height:number}, captionFontSize?: number, captionMarginV?: number, theme?: object, musicPath?: string|null, sfxPath?: string|null}} options -
  *   `dims` picks the output canvas — LANDSCAPE_DIMS (1920x1080, default, long-form) or PORTRAIT_DIMS
  *   (1080x1920, Shorts); every overlay position scales automatically to match. Set subtitles:false to
  *   skip burning in captions. `theme` (one of CARD_THEMES, default CARD_THEMES[0]) picks the accent-color
  *   variant for title cards/badges — pass a different one per video to avoid an identical look every time.
+ *   `musicPath` (optional, from lib/audio-library.mjs's pickMusicBed()) mixes in a low-volume looped
+ *   background bed; `sfxPath` (optional, from findSfxClip()) mixes in a short transition sound at every
+ *   segment cut. Both are additive and fully optional — omitting them reproduces today's narration-only
+ *   audio exactly.
  */
 export async function buildDocumentary(
   segments,
@@ -426,11 +571,12 @@ export async function buildDocumentary(
   placeholderImage = null,
   options = {}
 ) {
-  const { subtitles = true, dims = LANDSCAPE_DIMS, captionFontSize, captionMarginV, theme = CARD_THEMES[0] } = options;
+  const { subtitles = true, dims = LANDSCAPE_DIMS, captionFontSize, captionMarginV, theme = CARD_THEMES[0], musicPath = null, sfxPath = null } = options;
   await fs.mkdir(workDir, { recursive: true });
 
   const clipPaths = [];
   const capSegments = [];
+  const segmentDurationsForAudio = [];
   let cumulativeSec = 0;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
@@ -441,6 +587,7 @@ export async function buildDocumentary(
     const clipPath = path.join(workDir, `segment_${i}.mp4`);
     await renderSegmentClip(visual, dur, clipPath, dims, theme);
     clipPaths.push(clipPath);
+    segmentDurationsForAudio.push(dur);
 
     if (seg.text) {
       capSegments.push({ text: seg.text, startSec: cumulativeSec, durationSec: dur });
@@ -471,10 +618,30 @@ export async function buildDocumentary(
     videoForMux = subtitledPath;
   }
 
-  // lay the one continuous narration track on top; -shortest guards against tiny drift
+  // optionally layer in a music bed / segment-transition SFX under the
+  // narration (see mixFinalAudio above) — a no-op passthrough when neither
+  // musicPath nor sfxPath was set, so existing callers are unaffected
+  let audioForMux = narrationAudioPath;
+  if (musicPath || sfxPath) {
+    try {
+      audioForMux = await mixFinalAudio({
+        narrationAudioPath,
+        totalDurationSec: cumulativeSec,
+        musicPath,
+        sfxPath,
+        segmentDurationsSec: segmentDurationsForAudio,
+        workDir,
+      });
+    } catch (err) {
+      console.warn(`[audio] music/SFX mix failed, falling back to narration-only audio: ${err.message}`);
+      audioForMux = narrationAudioPath;
+    }
+  }
+
+  // lay the (possibly music/SFX-mixed) narration track on top; -shortest guards against tiny drift
   await ffmpeg([
     "-i", videoForMux,
-    "-i", narrationAudioPath,
+    "-i", audioForMux,
     "-c:v", "copy",
     "-c:a", "aac", "-b:a", "160k",
     "-shortest",

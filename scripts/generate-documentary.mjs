@@ -28,7 +28,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { synthesizeNarration } from "./lib/tts.mjs";
-import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
+import { fetchVisualForSegment, fetchFlag, writeAssetManifest } from "./lib/visuals.mjs";
+import { pickMusicBed, findSfxClip } from "./lib/audio-library.mjs";
 import {
   buildDocumentary,
   CARD_THEMES,
@@ -489,6 +490,7 @@ async function main() {
   );
 
   const segmentsForBuild = [];
+  const assetManifest = []; // source/license record for every fetched asset — see lib/visuals.mjs writeAssetManifest
 
   let introBgVisual;
   let introDurationSec = 0;
@@ -701,6 +703,19 @@ async function main() {
       }
     }
 
+    const assetSource = visual?.source ? visual : visual?.bgVisual?.source ? visual.bgVisual : null;
+    if (assetSource) {
+      assetManifest.push({
+        segment: i,
+        type: assetSource.type,
+        matchedTerm: assetSource.matchedTerm,
+        source: assetSource.source,
+        sourceId: assetSource.sourceId,
+        pageUrl: assetSource.pageUrl,
+        license: assetSource.license,
+      });
+    }
+
     segmentsForBuild.push({
       visual: visual,
       durationSec:
@@ -731,6 +746,18 @@ async function main() {
       "final.mp4"
     );
 
+  // music bed + a short transition SFX are both best-effort/non-fatal (see
+  // lib/audio-library.mjs) — a video renders narration-only, exactly as
+  // before, if neither is configured yet
+  const musicBed = await pickMusicBed(runDir).catch(() => null);
+  const sfxClip = await findSfxClip(runDir).catch(() => null);
+  if (musicBed) console.log("[audio] music bed: " + path.basename(musicBed.path) + " (" + musicBed.source + ")");
+  if (sfxClip) {
+    console.log("[audio] transition sfx: " + sfxClip.source + " #" + sfxClip.sourceId);
+    assetManifest.push({ role: "sfx", source: sfxClip.source, sourceId: sfxClip.sourceId, pageUrl: sfxClip.pageUrl, license: sfxClip.license, attribution: sfxClip.attribution });
+  }
+  if (musicBed) assetManifest.push({ role: "music", source: musicBed.source, sourceId: musicBed.sourceId, pageUrl: musicBed.pageUrl, license: musicBed.license, attribution: musicBed.attribution });
+
   console.log(
     "[ffmpeg] assembling synced video (with voiced intro/outro)..."
   );
@@ -746,8 +773,11 @@ async function main() {
     null,
     {
       theme: theme,
+      musicPath: musicBed?.path ?? null,
+      sfxPath: sfxClip?.path ?? null,
     }
   );
+  await writeAssetManifest(assetManifest, path.join(runDir, "asset-manifest.json"));
 
   console.log(
     "[done] video ready: " +

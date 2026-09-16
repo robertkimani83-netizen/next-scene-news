@@ -52,6 +52,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
+          FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           FORCE_SHORT_FORMAT: ${{ github.event.inputs.format }}
         run: npm run test-short-no-upload
@@ -62,6 +65,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
+          FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}

@@ -19,7 +19,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeNarration } from "./lib/tts.mjs";
-import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
+import { fetchVisualForSegment, fetchFlag, writeAssetManifest } from "./lib/visuals.mjs";
+import { pickMusicBed, findSfxClip } from "./lib/audio-library.mjs";
 import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
 import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
 import {
@@ -661,6 +662,7 @@ async function main() {
 
   console.log("[visuals] fetching real clips/photos per segment (portrait)...");
   const segmentsForBuild = [];
+  const assetManifest = []; // source/license record for every fetched asset — see lib/visuals.mjs writeAssetManifest
   let introDurationSec = 0; // real TTS timing for the intro card, used to pick a safe thumbnail-frame timestamp
   for (let i = 0; i < script.segments.length; i++) {
     const timing = sentences[i] ?? {
@@ -742,6 +744,17 @@ async function main() {
       });
       const matched = visual?.matchedTerm ? ` matched "${visual.matchedTerm}"` : "";
       console.log(`  segment ${i}: ${visual ? visual.type : "NO VISUAL FOUND"}${matched} — wanted "${script.segments[i].visualQuery}" (${timing.durationSec.toFixed(1)}s)`);
+      if (visual?.source) {
+        assetManifest.push({
+          segment: i,
+          type: visual.type,
+          matchedTerm: visual.matchedTerm,
+          source: visual.source,
+          sourceId: visual.sourceId,
+          pageUrl: visual.pageUrl,
+          license: visual.license,
+        });
+      }
 
       if (visual && script.segments[i].countryCode) {
         const flagPath = await fetchFlag(script.segments[i].countryCode, runDir).catch(() => null);
@@ -760,12 +773,27 @@ async function main() {
     segmentsForBuild.push({ visual, durationSec: timing.durationSec, text: script.segments[i].text });
   }
 
+  // music bed + a short transition SFX are both best-effort/non-fatal (see
+  // lib/audio-library.mjs) — a video renders narration-only, exactly as
+  // before, if neither is configured yet
+  const musicBed = await pickMusicBed(runDir).catch(() => null);
+  const sfxClip = await findSfxClip(runDir).catch(() => null);
+  if (musicBed) console.log(`[audio] music bed: ${path.basename(musicBed.path)} (${musicBed.source})`);
+  if (sfxClip) {
+    console.log(`[audio] transition sfx: ${sfxClip.source} #${sfxClip.sourceId}`);
+    assetManifest.push({ role: "sfx", source: sfxClip.source, sourceId: sfxClip.sourceId, pageUrl: sfxClip.pageUrl, license: sfxClip.license, attribution: sfxClip.attribution });
+  }
+  if (musicBed) assetManifest.push({ role: "music", source: musicBed.source, sourceId: musicBed.sourceId, pageUrl: musicBed.pageUrl, license: musicBed.license, attribution: musicBed.attribution });
+
   const outputPath = path.join(runDir, "final_short.mp4");
   console.log("[ffmpeg] assembling synced portrait video...");
   await buildDocumentary(segmentsForBuild, audioPath, path.join(runDir, "work"), outputPath, null, {
     dims: PORTRAIT_DIMS,
     theme,
+    musicPath: musicBed?.path ?? null,
+    sfxPath: sfxClip?.path ?? null,
   });
+  await writeAssetManifest(assetManifest, path.join(runDir, "asset-manifest.json"));
 
   const totalSec = segmentsForBuild.reduce((sum, s) => sum + Math.max(s.durationSec, 0.6), 0);
   console.log(`[done] short ready: ${outputPath} (~${totalSec.toFixed(1)}s)`);
