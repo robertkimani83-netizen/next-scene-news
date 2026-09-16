@@ -58,174 +58,62 @@ const PRIORITY_QUEUE_PATH = path.join(__dirname, "..", "state", "priority-queue-
 // lists (those need the full ~60-90s runtime to land). Extend freely, the
 // picker adapts automatically.
 //
-// Sept 10 2026: added a second wave leaning into trending geopolitics —
-// alliances, resource competition, cyber/AI conflict, currency politics —
-// alongside the original "richest tiny country" angle, so the channel
-// isn't just cycling the same handful of wealth-superlative stories. 52
-// topics total at 3 Shorts/day means the pool now cycles roughly every 17
-// days before any topic repeats.
-// Sept 10 2026 (later same day): same reversal/curiosity-gap wave as the
-// long-form pool, added for the same reason (these angles measurably
-// outperform plain wealth-ranking topics on this channel).
-// Sept 11 2026: added a rivalry/conflict wave — real, ongoing standoffs,
-// border disputes and head-to-head power struggles between two named
-// countries (China vs India, Iran vs Israel, the chip war, etc.) instead of
-// a single country's stat. Tension and stakes between two named sides tends
-// to out-hook a flat "this country is rich/secretly powerful" fact, and it's
-// a genuinely different angle from every wave above rather than a reskin of
-// the same wealth/power-superlative format.
+// Sept 16 2026: Robert asked to lean much harder into the "maps" niche
+// specifically — vidIQ (Sept 15 check) showed the Map Challenge/Guess the
+// Country mystery formats AND the plain map-literacy narrative topics
+// (added Sept 15, e.g. "why the world map you grew up with is quietly
+// wrong") clearly outperforming the older wealth-superlative/rivalry/city
+// narrative waves, so this pool was rebuilt around that: a big new "Map
+// Literacy" wave (20 topics — map myths, distortion, borders, projections,
+// disputed/changing maps) plus only a small kept-back set of the
+// strongest-performing older topics (one per named series, so none of the
+// existing playlists go completely empty) rather than the full ~150-topic
+// pool from before. Removed topics are gone from SHORT_TOPIC_SERIES too —
+// lib/topic-history.mjs already self-prunes its history file to whatever's
+// still in the pool, so this needed no other changes.
 const SHORT_TOPIC_POOL = [
+  // --- Map Literacy wave (Sept 16 2026) — the niche Robert asked to grow ---
+  "Why Greenland looks bigger than Africa on most maps (it's nowhere close)",
+  "The map projection almost every country secretly disagrees with",
+  "Why some countries print maps that include territory they don't actually control",
+  "The country that doesn't look the same on any two official maps",
+  "Why Google Maps quietly shows different borders depending on where you live",
+  "The disputed borders that look completely different depending on whose map you're reading",
+  "Why Alaska looks huge on the map but isn't nearly as big as you think",
+  "The countries that have actually changed shape on the map in your lifetime",
+  "Why Africa is big enough to fit the USA, China, India and most of Europe inside it",
+  "The tiny dots on the map that are actually entire countries",
+  "Why some maps still show borders and countries that don't exist anymore",
+  "The countries whose borders were drawn by people who'd never even set foot there",
+  "Why time zones on the map make way less sense than you'd expect",
+  "The country split by a border so narrow you could walk across it in minutes",
+  "Why a few islands still shown on maps today don't actually exist",
+  "The real distance between countries the map is quietly lying to you about",
+  "Why Russia covers an eighth of the world's land but still isn't unbeatable",
+  "The countries hiding in plain sight most people couldn't point to on a map",
+  "Why the equator doesn't pass through where most people assume it does",
+  "The map every country quietly draws a little differently to look bigger",
+  // --- Small kept-back set of the strongest earlier topics, one or two per
+  // existing named series, so those playlists still get occasional new
+  // entries instead of going silent ---
   "The country that looks poor but is secretly one of the richest on Earth",
-  "Why Monaco has no income tax and how its economy actually works",
   "The country everyone hates and the real reason why",
-  "Why NATO's newest members are reshaping Europe's defense map",
   "The tiny country secretly more powerful than nations 100 times its size",
-  "The country with the highest number of billionaires per capita",
-  "The country banned from something you'd never expect",
-  "The country secretly stockpiling the world's rare earth minerals",
   "Why this country looks broke but is actually loaded",
-  "Why Singapore became one of the richest countries in the world",
-  "The country hiding one of the world's best-kept economic secrets",
-  "Why BRICS is trying to build an alternative to the US dollar",
-  "Why everyone gets this country's wealth completely wrong",
-  "The smallest country in the world with the strongest economy",
   "The country nobody talks about that secretly controls global trade",
-  "The nation quietly building military bases across three continents",
-  "Why this 'friendly' country is secretly a rival superpower",
-  "Why Norway's oil fund is the largest sovereign wealth fund on Earth",
-  "The country where the official numbers don't add up",
-  "Why the Arctic is becoming the world's next resource battleground",
-  "The most underestimated country in the world right now",
-  "The country that prints more money than any other in the world",
-  "Why this tiny nation is secretly richer than its neighbors",
-  "The country with the most spies per capita in the world",
-  "The country the world assumes is dangerous but really isn't",
-  "Why Switzerland stays neutral and still gets incredibly rich",
-  "The country the world assumes is safe but really isn't",
-  "Why Taiwan makes the world hold its breath every year",
-  "The surprising secret behind this country's sudden wealth",
-  "The African country with the fastest growing economy right now",
-  "The nation that controls the world's most important shipping chokepoint",
-  "Why Dubai built one of the richest cities out of a desert",
-  "Why critical minerals are the new oil in global politics",
-  "The country with the most gold reserves per citizen",
-  "The country using AI to reshape its entire military",
-  "Why Iceland has almost zero crime and one of the happiest populations",
-  "Why water is becoming more valuable than oil in some countries",
-  "The country spending the most on artificial intelligence right now",
-  "The smallest country with the biggest cyber warfare capability",
-  "Why Qatar became one of the wealthiest nations per capita",
-  "Why de-dollarization is quietly gaining momentum worldwide",
-  "The country with the world's most powerful passport",
-  "The nation building the world's most advanced hypersonic missiles",
-  "Why Estonia is called the most digital country on Earth",
-  "Why Africa is becoming the world's next geopolitical battleground",
-  "The country building the world's tallest and most futuristic skyline",
-  "The country stockpiling weapons faster than any other right now",
-  "Why Luxembourg has the highest GDP per capita in the world",
-  "Why the Red Sea has become one of the world's most dangerous waterways",
-  "The country where robots outnumber factory workers",
-  "The nation with the most foreign military bases on Earth",
-  "Why New Zealand keeps topping the world's safest countries list",
-  "Why semiconductor factories are now a matter of national security",
-  "The tiny country that controls a huge share of the world's shipping",
-  "The country betting its future on becoming an AI superpower",
-  "Why Ireland became a tax haven for the world's biggest tech companies",
-  "Why Latin America's politics are swinging in a new direction",
-  "The country with more sheep than people",
-  "The tiny alliance quietly building nuclear-powered submarines",
-  "Why Taiwan makes almost all the world's advanced computer chips",
-  "The country spending the most per person on renewable energy",
-  "Why Finland is ranked the happiest country on Earth",
-  "The smallest economy that punches way above its weight",
-  "Why South Korea became a global entertainment and tech powerhouse",
-  "The country with the world's largest sovereign gold reserve per capita",
-  "Why Rwanda is called Africa's cleanest and safest country",
-  "The nation betting its entire future on artificial intelligence",
+  "Why everyone gets this country's wealth completely wrong",
   "Why China and India can't stop fighting over this border",
-  "The islands both China and Japan refuse to give up",
-  "Why Iran and Israel are edging closer to a bigger war",
   "The silent chip war between the US and China nobody can win outright",
-  "Why Venezuela and Guyana are fighting over an oil-rich territory",
-  "The river dam turning Egypt and Ethiopia into rivals",
-  "Why Armenia and Azerbaijan keep going back to war",
-  "The two nations racing each other to control the world's lithium",
-  "Why Turkey and Greece can't stop clashing over the same sea",
-  "The standoff over who really controls the South China Sea",
-  "Why North and South Korea are still technically at war",
-  "The two rivals secretly stockpiling weapons against each other",
-  "Why Pakistan and India still can't agree on this river",
-  "The rivalry between Saudi Arabia and Iran reshaping the Middle East",
-  "Why the Philippines and China keep clashing at sea",
   "The flashpoint that could turn Taiwan into a global crisis overnight",
-  "Why Morocco and Algeria cut ties and what it could trigger next",
-  "The two superpowers racing to weaponize AI before the other one does",
-  "Why Serbia and Kosovo tensions keep boiling over",
-  "The Arctic standoff nobody's watching between Russia and the West",
-  "Why Poland and Russia's relationship keeps getting more dangerous",
-  "The two countries fighting over the last untapped oil reserves",
-  "Why Sudan and Egypt still can't agree on their shared border",
-  "The rivalry between two nations both racing to build the strongest military AI",
-  // Sept 11 2026 (later same day): a broader wave moving past countries
-  // entirely — cities, AI/future, mystery/strange-places and a few
-  // explicit hook-format experiments (What If / Did You Know / Versus /
-  // Before-vs-After) baked directly into the topic text itself, since
-  // generateScript() just writes toward whatever the topic string already
-  // frames. Paired with SHORT_TOPIC_SERIES below so these (plus the rivalry
-  // wave above) file into recognizable recurring series/playlists instead
-  // of only the single catch-all Shorts playlist.
-  "Did you know some countries have no army at all?",
-  "The smallest countries in the world you've probably never heard of",
-  "The countries that don't have a single major river running through them",
-  "The countries that could disappear within our lifetime",
-  "The countries almost no tourists ever visit",
-  "The countries that own islands thousands of miles from their own borders",
-  "The cheapest countries in the world to actually live in",
-  "The most expensive cities on Earth right now",
-  "The countries that could become the richest in the world by 2050",
-  "The countries where salaries are rising faster than anywhere else",
-  "What $100 is actually worth in different countries around the world",
-  "The countries sitting on the largest untapped natural resources on Earth",
-  "The jobs AI could wipe out within the next decade",
-  "The jobs AI probably can never replace",
-  "What the world could actually look like by 2050",
-  "The technologies that could completely change your daily life within years",
-  "What happens if AI ever becomes smarter than humans",
-  "The brand new cities being built entirely from scratch",
-  "The cities with more skyscrapers than anywhere else on Earth",
-  "The cities that are almost completely empty",
-  "The underground cities most people don't know exist",
-  "The cities that could be underwater within decades",
-  "The most futuristic cities being built right now",
-  "The places on Earth humans are not allowed to visit",
-  "The mysterious places scientists still can't fully explain",
-  "The strangest laws that actually exist around the world",
-  "Things that legally exist in only one country on Earth",
-  "The abandoned cities that look frozen in time",
-  "The places on Earth that look like another planet",
-  "Secrets hidden underneath some of the world's most famous cities",
-  "Facts about Africa most people have never heard",
-  "How artificial intelligence could transform Africa's economy",
-  "What if Africa became a single unified country?",
-  "Africa vs Europe: which continent actually has more natural resources?",
   "USA vs China vs India: which superpower actually comes out on top?",
-  "Dubai in 1990 versus Dubai today",
-  // Sept 15 2026: a map-distortion/map-literacy wave, added after checking
-  // vidIQ's outlier and similar-video data for this niche — several
-  // channels are getting outsized reach right now on exactly this angle
-  // (a "Why Togo wants the world to redraw its maps" piece on Al Jazeera
-  // sits at 1M+ views/breakoutScore 32; a "Countries That Look Tiny But Are
-  // Huge" video on a similar-sized channel is running a ~422 views-per-hour
-  // pace; "I Used to Know EVERY Country... Can I Still Name Them?" is at
-  // breakoutScore 284). It's a close cousin of this channel's existing Map
-  // Challenge format (same "map" hook) but works as a plain narrative
-  // single-fact topic too, so it slots into SHORT_TOPIC_POOL directly with
-  // zero pipeline changes needed.
-  "The countries that look tiny on a map but are actually enormous in real life",
-  "Why the world map you grew up with is quietly wrong",
-  "The real size of Africa compared to how small it looks on most maps",
-  "The country most people couldn't find on a map if their life depended on it",
-  "How many countries can you actually name off the top of your head",
+  "What the world could actually look like by 2050",
+  "What happens if AI ever becomes smarter than humans",
+  "Facts about Africa most people have never heard",
+  "What if Africa became a single unified country?",
+  "The places on Earth that look like another planet",
+  "The abandoned cities that look frozen in time",
+  "Did you know some countries have no army at all?",
+  "The strangest laws that actually exist around the world",
 ];
 
 // Maps a subset of SHORT_TOPIC_POOL topics to a named recurring series.
@@ -238,81 +126,53 @@ const SHORT_TOPIC_POOL = [
 // series; an untagged topic just skips this and behaves exactly as before.
 const SHORT_TOPIC_SERIES = Object.fromEntries([
   ...[
+    "Why Greenland looks bigger than Africa on most maps (it's nowhere close)",
+    "The map projection almost every country secretly disagrees with",
+    "Why some countries print maps that include territory they don't actually control",
+    "The country that doesn't look the same on any two official maps",
+    "Why Google Maps quietly shows different borders depending on where you live",
+    "The disputed borders that look completely different depending on whose map you're reading",
+    "Why Alaska looks huge on the map but isn't nearly as big as you think",
+    "The countries that have actually changed shape on the map in your lifetime",
+    "Why Africa is big enough to fit the USA, China, India and most of Europe inside it",
+    "The tiny dots on the map that are actually entire countries",
+    "Why some maps still show borders and countries that don't exist anymore",
+    "The countries whose borders were drawn by people who'd never even set foot there",
+    "Why time zones on the map make way less sense than you'd expect",
+    "The country split by a border so narrow you could walk across it in minutes",
+    "Why a few islands still shown on maps today don't actually exist",
+    "The real distance between countries the map is quietly lying to you about",
+    "Why Russia covers an eighth of the world's land but still isn't unbeatable",
+    "The countries hiding in plain sight most people couldn't point to on a map",
+    "Why the equator doesn't pass through where most people assume it does",
+    "The map every country quietly draws a little differently to look bigger",
+  ].map((t) => [t, "Map Literacy"]),
+  ...[
     "Why China and India can't stop fighting over this border",
-    "The islands both China and Japan refuse to give up",
-    "Why Iran and Israel are edging closer to a bigger war",
     "The silent chip war between the US and China nobody can win outright",
-    "Why Venezuela and Guyana are fighting over an oil-rich territory",
-    "The river dam turning Egypt and Ethiopia into rivals",
-    "Why Armenia and Azerbaijan keep going back to war",
-    "The two nations racing each other to control the world's lithium",
-    "Why Turkey and Greece can't stop clashing over the same sea",
-    "The standoff over who really controls the South China Sea",
-    "Why North and South Korea are still technically at war",
-    "The two rivals secretly stockpiling weapons against each other",
-    "Why Pakistan and India still can't agree on this river",
-    "The rivalry between Saudi Arabia and Iran reshaping the Middle East",
-    "Why the Philippines and China keep clashing at sea",
     "The flashpoint that could turn Taiwan into a global crisis overnight",
-    "Why Morocco and Algeria cut ties and what it could trigger next",
-    "The two superpowers racing to weaponize AI before the other one does",
-    "Why Serbia and Kosovo tensions keep boiling over",
-    "The Arctic standoff nobody's watching between Russia and the West",
-    "Why Poland and Russia's relationship keeps getting more dangerous",
-    "The two countries fighting over the last untapped oil reserves",
-    "Why Sudan and Egypt still can't agree on their shared border",
-    "The rivalry between two nations both racing to build the strongest military AI",
-    "Africa vs Europe: which continent actually has more natural resources?",
     "USA vs China vs India: which superpower actually comes out on top?",
   ].map((t) => [t, "Country Battles"]),
   ...[
-    "The jobs AI could wipe out within the next decade",
-    "The jobs AI probably can never replace",
     "What the world could actually look like by 2050",
-    "The technologies that could completely change your daily life within years",
     "What happens if AI ever becomes smarter than humans",
-    "The countries that could become the richest in the world by 2050",
-    "The countries that could disappear within our lifetime",
-    "The cities that could be underwater within decades",
   ].map((t) => [t, "Future Earth"]),
   ...[
     "Facts about Africa most people have never heard",
-    "How artificial intelligence could transform Africa's economy",
     "What if Africa became a single unified country?",
-    "The African country with the fastest growing economy right now",
-    "Why Rwanda is called Africa's cleanest and safest country",
-    "Why Africa is becoming the world's next geopolitical battleground",
   ].map((t) => [t, "Africa Rising"]),
   ...[
-    "The brand new cities being built entirely from scratch",
-    "The cities with more skyscrapers than anywhere else on Earth",
-    "The cities that are almost completely empty",
-    "The underground cities most people don't know exist",
-    "The most futuristic cities being built right now",
-    "The places on Earth humans are not allowed to visit",
-    "The mysterious places scientists still can't fully explain",
-    "The abandoned cities that look frozen in time",
     "The places on Earth that look like another planet",
-    "Secrets hidden underneath some of the world's most famous cities",
-    "The countries almost no tourists ever visit",
+    "The abandoned cities that look frozen in time",
   ].map((t) => [t, "Impossible Places"]),
   ...[
     "Did you know some countries have no army at all?",
-    "The smallest countries in the world you've probably never heard of",
-    "The countries that don't have a single major river running through them",
-    "The countries that own islands thousands of miles from their own borders",
-    "The cheapest countries in the world to actually live in",
-    "The most expensive cities on Earth right now",
-    "The countries where salaries are rising faster than anywhere else",
-    "What $100 is actually worth in different countries around the world",
     "The strangest laws that actually exist around the world",
-    "Things that legally exist in only one country on Earth",
-    "Dubai in 1990 versus Dubai today",
-    "The countries sitting on the largest untapped natural resources on Earth",
   ].map((t) => [t, "World in 30 Seconds"]),
 ]);
 
 const SERIES_DESCRIPTIONS = {
+  "Map Literacy": "The maps you grew up trusting are wrong more often than you think — NEXTSCENE TV.",
   "Country Battles": "Head-to-head rivalries, standoffs and power struggles between two nations — NEXTSCENE TV.",
   "Future Earth": "What the world, AI and the global economy could look like in the decades ahead — NEXTSCENE TV.",
   "Africa Rising": "The economies, stories and future of Africa the headlines miss — NEXTSCENE TV.",
