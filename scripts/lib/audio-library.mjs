@@ -1,8 +1,12 @@
 // Sound effects + background music for the NEXTSCENE pipeline (see the
 // Sept 16 2026 channel-upgrade brief — the pipeline had zero music/SFX
-// before this). Both pieces are best-effort and fail SILENTLY (return null,
-// never throw): a video with no music bed or no transition SFX is exactly
-// today's output, never a broken run.
+// before this). Both pieces are best-effort and fail SOFT (return null,
+// never throw, never fail the run): a video with no music bed or no
+// transition SFX is exactly today's output, never a broken run. As of the
+// Sept 16 2026 diagnostics pass, every soft-fail path also logs a one-line
+// reason via console.error (HTTP status, empty result set, download error,
+// missing key/outDir) so a silent "no music this run" is still diagnosable
+// from the Actions job log instead of being a dead end.
 //
 // SFX: Freesound's official APIv2 (freesound.org/docs/api/) — search +
 // preview download only need a simple API token (freesound.org/apiv2/apply),
@@ -72,14 +76,29 @@ async function searchFreesound(query, durationFilter, fields) {
       `https://freesound.org/apiv2/search/text/?query=${encodeURIComponent(query)}` +
       `&filter=${filter}&fields=${fields}&page_size=5&token=${FREESOUND_KEY}`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // deliberately not throwing (this is still a soft-fail path overall)
+      // but logged so a silent no-music/no-sfx run is diagnosable from the
+      // Actions job log instead of a dead end — a 401 here almost always
+      // means the FREESOUND_API_KEY secret is missing/invalid/revoked, a
+      // 429 means rate-limited, anything else is worth reading the body for.
+      let bodySnippet = "";
+      try {
+        bodySnippet = (await res.text()).slice(0, 200);
+      } catch {
+        /* ignore */
+      }
+      console.error(`[audio] Freesound search failed: HTTP ${res.status} for query "${query}" (${licenseClause}) — ${bodySnippet}`);
+      return null;
+    }
     const data = await res.json();
     return data.results?.[0] || null;
   };
 
   try {
     return (await tryLicense('license:"Creative Commons 0"')) || (await tryLicense('license:"Attribution"'));
-  } catch {
+  } catch (err) {
+    console.error(`[audio] Freesound search threw for query "${query}": ${err?.message || err}`);
     return null;
   }
 }
@@ -116,7 +135,14 @@ export async function pickMusicBed(outDir) {
   // tier 2: Freesound fallback — same key as the SFX lookup, different
   // query/duration range (looking for a loop-able ambient bed, not a
   // one-second whoosh)
-  if (!FREESOUND_KEY || !outDir) return null;
+  if (!FREESOUND_KEY) {
+    console.error("[audio] no local track in assets/music/ and FREESOUND_API_KEY is not set — skipping music bed");
+    return null;
+  }
+  if (!outDir) {
+    console.error("[audio] pickMusicBed() called without an outDir — Freesound fallback needs one to save the download to, skipping music bed");
+    return null;
+  }
 
   const queries = ["ambient background loop", "cinematic atmosphere", "documentary background music"];
   const fields = "id,name,url,license,username,previews,duration";
@@ -127,16 +153,23 @@ export async function pickMusicBed(outDir) {
     hit = await searchFreesound(q, durationFilter, fields);
     if (hit) break;
   }
-  if (!hit) return null;
+  if (!hit) {
+    console.error(`[audio] Freesound returned no music-bed matches for any of: ${queries.join(", ")}`);
+    return null;
+  }
 
   const previewUrl = hit.previews?.["preview-hq-mp3"] || hit.previews?.["preview-lq-mp3"];
-  if (!previewUrl) return null;
+  if (!previewUrl) {
+    console.error(`[audio] Freesound hit #${hit.id} had no usable preview URL`);
+    return null;
+  }
 
   await fs.mkdir(outDir, { recursive: true });
   const dest = path.join(outDir, "music_bed_freesound.mp3");
   try {
     await downloadTo(previewUrl, dest);
-  } catch {
+  } catch (err) {
+    console.error(`[audio] failed to download Freesound music bed #${hit.id}: ${err?.message || err}`);
     return null;
   }
 
@@ -163,20 +196,30 @@ export async function pickMusicBed(outDir) {
  * @returns {Promise<{path: string, source: string, sourceId: string, pageUrl: string, license: string, attribution?: string} | null>}
  */
 export async function findSfxClip(outDir, query = "whoosh transition") {
-  if (!FREESOUND_KEY) return null;
+  if (!FREESOUND_KEY) {
+    console.error("[audio] FREESOUND_API_KEY is not set — skipping transition sfx");
+    return null;
+  }
 
   const fields = "id,name,url,license,username,previews,duration";
   const hit = await searchFreesound(query, "duration:[0.1 TO 1.5]", fields);
-  if (!hit) return null;
+  if (!hit) {
+    console.error(`[audio] Freesound returned no sfx matches for query "${query}"`);
+    return null;
+  }
 
   const previewUrl = hit.previews?.["preview-hq-mp3"] || hit.previews?.["preview-lq-mp3"];
-  if (!previewUrl) return null;
+  if (!previewUrl) {
+    console.error(`[audio] Freesound sfx hit #${hit.id} had no usable preview URL`);
+    return null;
+  }
 
   await fs.mkdir(outDir, { recursive: true });
   const dest = path.join(outDir, "sfx_transition.mp3");
   try {
     await downloadTo(previewUrl, dest);
-  } catch {
+  } catch (err) {
+    console.error(`[audio] failed to download Freesound sfx #${hit.id}: ${err?.message || err}`);
     return null;
   }
 
