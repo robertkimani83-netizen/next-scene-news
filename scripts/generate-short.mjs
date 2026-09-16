@@ -3,10 +3,11 @@
 // narration with exact per-sentence timing -> real Pexels/Unsplash clips ->
 // ffmpeg assembly -> upload to NEXTSCENE TV), but: portrait 1080x1920
 // canvas, a much shorter/punchier single-topic script (~25-40s) instead of
-// a full Top-10 countdown, and no mid-roll subscribe splice or separate
-// outro card — every second counts on a Short, so it opens with the title
-// card + spoken hook and just ends on the script's own "follow for more"
-// line over normal footage.
+// a full Top-10 countdown, and no mid-roll subscribe splice — every second
+// counts on a Short. It opens with the title card + spoken hook and (as of
+// the Sept 16 2026 channel-upgrade brief) always closes on the same short,
+// deterministic branded outro card (see NEXTSCENE_BRAND_LINE below) instead
+// of leaving the sign-off to whatever Gemini happened to write that run.
 //
 // Required environment variables — same secrets as generate-documentary.mjs
 // (GEMINI_API_KEY, PEXELS_API_KEY, GOOGLE_CLIENT_ID/SECRET, YOUTUBE_REFRESH_TOKEN).
@@ -21,7 +22,14 @@ import { synthesizeNarration } from "./lib/tts.mjs";
 import { fetchVisualForSegment, fetchFlag } from "./lib/visuals.mjs";
 import { buildDocumentary, PORTRAIT_DIMS, CARD_THEMES, extractThumbnail } from "./lib/ffmpeg-build.mjs";
 import { generateAiThumbnail } from "./lib/thumbnail-gen.mjs";
-import { generateScript, generateGuessScript, generateMapClueScript } from "./lib/script-gen.mjs";
+import {
+  generateScript,
+  generateGuessScript,
+  generateMapClueScript,
+  reviewScriptClaims,
+  NEXTSCENE_BRAND_LINE,
+  NEXTSCENE_BRAND_SUBLINE,
+} from "./lib/script-gen.mjs";
 import { renderMapChallengeCards } from "./lib/map-challenge.mjs";
 import { pickWithPriority, peekQueuedKeys } from "./lib/topic-history.mjs";
 import { uploadToYouTube, getOrCreatePlaylist, addVideoToPlaylist, setThumbnail } from "./lib/youtube.mjs";
@@ -58,21 +66,31 @@ const PRIORITY_QUEUE_PATH = path.join(__dirname, "..", "state", "priority-queue-
 // lists (those need the full ~60-90s runtime to land). Extend freely, the
 // picker adapts automatically.
 //
-// Sept 16 2026: Robert asked to lean much harder into the "maps" niche
-// specifically — vidIQ (Sept 15 check) showed the Map Challenge/Guess the
-// Country mystery formats AND the plain map-literacy narrative topics
-// (added Sept 15, e.g. "why the world map you grew up with is quietly
-// wrong") clearly outperforming the older wealth-superlative/rivalry/city
-// narrative waves, so this pool was rebuilt around that: a big new "Map
-// Literacy" wave (20 topics — map myths, distortion, borders, projections,
-// disputed/changing maps) plus only a small kept-back set of the
-// strongest-performing older topics (one per named series, so none of the
-// existing playlists go completely empty) rather than the full ~150-topic
-// pool from before. Removed topics are gone from SHORT_TOPIC_SERIES too —
-// lib/topic-history.mjs already self-prunes its history file to whatever's
-// still in the pool, so this needed no other changes.
+// Sept 16 2026 (channel-upgrade brief): every topic below is now tagged in
+// SHORT_TOPIC_SERIES with one of the channel's 5 content pillars (Hidden
+// World, Strange Borders, Future 2035, World Power, You Didn't Know) rather
+// than a grab-bag of one-off named series — that tag does DOUBLE DUTY: it's
+// still which playlist the finished video gets filed into (as before), AND
+// it's now passed to generateScript() as the `pillar` option, which changes
+// HOW Gemini writes the script (see PILLAR_GUIDANCE in lib/script-gen.mjs).
+// The Sept 16 "Map Literacy" wave (maps/borders/projections/disputed
+// territory content) is folded into the Strange Borders pillar below rather
+// than kept as its own separate playlist, per the brief's "don't create
+// dozens of tiny playlists" instruction — the topic text itself is
+// unchanged, only its tag.
 const SHORT_TOPIC_POOL = [
-  // --- Map Literacy wave (Sept 16 2026) — the niche Robert asked to grow ---
+  // --- Hidden World pillar — strange/hidden places; real analytics' best
+  // performer (see the channel-upgrade plan) ---
+  "The country that looks poor but is secretly one of the richest on Earth",
+  "The tiny country secretly more powerful than nations 100 times its size",
+  "Why this country looks broke but is actually loaded",
+  "The places on Earth that look like another planet",
+  "The abandoned cities that look frozen in time",
+  "What if Africa became a single unified country?",
+  "The village so remote almost nobody outside it knows it exists",
+  "The island that was empty 40 years ago and is unrecognizable today",
+  "The underground city built to survive something that never came",
+  // --- Strange Borders pillar (the Sept 16 map-literacy wave lives here) ---
   "Why Greenland looks bigger than Africa on most maps (it's nowhere close)",
   "The map projection almost every country secretly disagrees with",
   "Why some countries print maps that include territory they don't actually control",
@@ -93,38 +111,64 @@ const SHORT_TOPIC_POOL = [
   "The countries hiding in plain sight most people couldn't point to on a map",
   "Why the equator doesn't pass through where most people assume it does",
   "The map every country quietly draws a little differently to look bigger",
-  // --- Small kept-back set of the strongest earlier topics, one or two per
-  // existing named series, so those playlists still get occasional new
-  // entries instead of going silent ---
-  "The country that looks poor but is secretly one of the richest on Earth",
-  "The country everyone hates and the real reason why",
-  "The tiny country secretly more powerful than nations 100 times its size",
-  "Why this country looks broke but is actually loaded",
-  "The country nobody talks about that secretly controls global trade",
-  "Why everyone gets this country's wealth completely wrong",
   "Why China and India can't stop fighting over this border",
+  // --- Future 2035 pillar — thinnest pillar on the real channel today (see
+  // the channel-upgrade plan), so this got the biggest new wave. Every
+  // topic here is written so the script prompt's CONFIRMED / UNDER
+  // DEVELOPMENT / PREDICTION labeling (see PILLAR_GUIDANCE in
+  // lib/script-gen.mjs) has real, specific material to work with instead of
+  // vague futurism. ---
+  "What the world could actually look like by 2050",
+  "What happens if AI ever becomes smarter than humans",
+  "The airports already being redesigned for planes that don't exist yet",
+  "The city being built from scratch as a live test for how we'll all live by 2035",
+  "The jobs already quietly disappearing to automation right now",
+  "The transportation technology already running in one country and coming everywhere else",
+  "Why some countries are betting their entire future on a technology that doesn't fully work yet",
+  "The energy source expected to quietly take over within a decade",
+  "The country testing what an entire AI-run city could actually look like",
+  // --- World Power pillar — trade routes, chokepoints, strategic resources ---
+  "The country nobody talks about that secretly controls global trade",
   "The silent chip war between the US and China nobody can win outright",
   "The flashpoint that could turn Taiwan into a global crisis overnight",
   "USA vs China vs India: which superpower actually comes out on top?",
-  "What the world could actually look like by 2050",
-  "What happens if AI ever becomes smarter than humans",
+  "The canal one blockage away from disrupting global trade",
+  "The chokepoint quietly controlling more of the world's oil than most people realize",
+  "Why one port decides how expensive almost everything you own gets",
+  // --- You Didn't Know pillar — one specific surprising fact, explained,
+  // then twisted ---
+  "The country everyone hates and the real reason why",
+  "Why everyone gets this country's wealth completely wrong",
   "Facts about Africa most people have never heard",
-  "What if Africa became a single unified country?",
-  "The places on Earth that look like another planet",
-  "The abandoned cities that look frozen in time",
   "Did you know some countries have no army at all?",
   "The strangest laws that actually exist around the world",
+  "The number almost everyone gets wrong about how big the oceans actually are",
+  "The everyday item that quietly started a real dispute between two countries",
 ];
 
-// Maps a subset of SHORT_TOPIC_POOL topics to a named recurring series.
-// Purely a branding/discovery layer on top of the existing single-topic
-// pipeline — the topic itself still drives the script — but a video whose
-// topic has an entry here also gets filed into that series' own YouTube
-// playlist (created on first use) and gets one extra line in its
-// description naming the series, on top of the usual catch-all "NEXTSCENE
-// Shorts" playlist every upload already joins. Not every topic needs a
-// series; an untagged topic just skips this and behaves exactly as before.
+// Maps every SHORT_TOPIC_POOL topic to one of the channel's 5 content
+// pillars (see the Sept 16 2026 channel-upgrade plan). This tag does DOUBLE
+// DUTY: it's still which YouTube playlist the finished video gets filed
+// into (created on first use, same as before), AND it's now also passed to
+// generateScript() as the `pillar` option, which changes HOW Gemini writes
+// the script for that topic (see PILLAR_GUIDANCE in lib/script-gen.mjs) —
+// so this one tag drives both organization AND the actual writing style,
+// instead of being purely a playlist label like the old SHORT_TOPIC_SERIES
+// was. An untagged topic (there shouldn't be any left below, but the
+// fallback exists for safety) defaults to the "Hidden World" pillar, both
+// for playlist filing and for script guidance.
 const SHORT_TOPIC_SERIES = Object.fromEntries([
+  ...[
+    "The country that looks poor but is secretly one of the richest on Earth",
+    "The tiny country secretly more powerful than nations 100 times its size",
+    "Why this country looks broke but is actually loaded",
+    "The places on Earth that look like another planet",
+    "The abandoned cities that look frozen in time",
+    "What if Africa became a single unified country?",
+    "The village so remote almost nobody outside it knows it exists",
+    "The island that was empty 40 years ago and is unrecognizable today",
+    "The underground city built to survive something that never came",
+  ].map((t) => [t, "Hidden World"]),
   ...[
     "Why Greenland looks bigger than Africa on most maps (it's nowhere close)",
     "The map projection almost every country secretly disagrees with",
@@ -146,40 +190,47 @@ const SHORT_TOPIC_SERIES = Object.fromEntries([
     "The countries hiding in plain sight most people couldn't point to on a map",
     "Why the equator doesn't pass through where most people assume it does",
     "The map every country quietly draws a little differently to look bigger",
-  ].map((t) => [t, "Map Literacy"]),
-  ...[
     "Why China and India can't stop fighting over this border",
-    "The silent chip war between the US and China nobody can win outright",
-    "The flashpoint that could turn Taiwan into a global crisis overnight",
-    "USA vs China vs India: which superpower actually comes out on top?",
-  ].map((t) => [t, "Country Battles"]),
+  ].map((t) => [t, "Strange Borders"]),
   ...[
     "What the world could actually look like by 2050",
     "What happens if AI ever becomes smarter than humans",
-  ].map((t) => [t, "Future Earth"]),
+    "The airports already being redesigned for planes that don't exist yet",
+    "The city being built from scratch as a live test for how we'll all live by 2035",
+    "The jobs already quietly disappearing to automation right now",
+    "The transportation technology already running in one country and coming everywhere else",
+    "Why some countries are betting their entire future on a technology that doesn't fully work yet",
+    "The energy source expected to quietly take over within a decade",
+    "The country testing what an entire AI-run city could actually look like",
+  ].map((t) => [t, "Future 2035"]),
   ...[
+    "The country nobody talks about that secretly controls global trade",
+    "The silent chip war between the US and China nobody can win outright",
+    "The flashpoint that could turn Taiwan into a global crisis overnight",
+    "USA vs China vs India: which superpower actually comes out on top?",
+    "The canal one blockage away from disrupting global trade",
+    "The chokepoint quietly controlling more of the world's oil than most people realize",
+    "Why one port decides how expensive almost everything you own gets",
+  ].map((t) => [t, "World Power"]),
+  ...[
+    "The country everyone hates and the real reason why",
+    "Why everyone gets this country's wealth completely wrong",
     "Facts about Africa most people have never heard",
-    "What if Africa became a single unified country?",
-  ].map((t) => [t, "Africa Rising"]),
-  ...[
-    "The places on Earth that look like another planet",
-    "The abandoned cities that look frozen in time",
-  ].map((t) => [t, "Impossible Places"]),
-  ...[
     "Did you know some countries have no army at all?",
     "The strangest laws that actually exist around the world",
-  ].map((t) => [t, "World in 30 Seconds"]),
+    "The number almost everyone gets wrong about how big the oceans actually are",
+    "The everyday item that quietly started a real dispute between two countries",
+  ].map((t) => [t, "You Didn't Know"]),
 ]);
 
 const SERIES_DESCRIPTIONS = {
-  "Map Literacy": "The maps you grew up trusting are wrong more often than you think — NEXTSCENE TV.",
-  "Country Battles": "Head-to-head rivalries, standoffs and power struggles between two nations — NEXTSCENE TV.",
-  "Future Earth": "What the world, AI and the global economy could look like in the decades ahead — NEXTSCENE TV.",
-  "Africa Rising": "The economies, stories and future of Africa the headlines miss — NEXTSCENE TV.",
-  "Impossible Places": "Cities, ruins and places on Earth that barely look real — NEXTSCENE TV.",
-  "World in 30 Seconds": "One fast, surprising world fact at a time — NEXTSCENE TV.",
-  "Guess the Country": "3 clues, one mystery country, 3-2-1 reveal — can you get it before the countdown? NEXTSCENE TV.",
-  "Map Challenge": "Watch the map zoom in on a mystery country — can you name it before the reveal? NEXTSCENE TV.",
+  "Hidden World": "Strange places, hidden locations and geographic anomalies most people have never heard of — NEXTSCENE.",
+  "Strange Borders": "Borders, enclaves, disputed maps and territorial oddities that make no sense until you know why — NEXTSCENE.",
+  "Future 2035": "Real technology already changing the world, and honest predictions about where it's headed next — NEXTSCENE.",
+  "World Power": "The trade routes, chokepoints and resources quietly deciding who actually holds power — NEXTSCENE.",
+  "You Didn't Know": "One surprising fact at a time, explained properly — NEXTSCENE.",
+  "Guess the Country": "3 clues, one mystery country, 3-2-1 reveal — can you get it before the countdown? NEXTSCENE.",
+  "Map Challenge": "Watch the map zoom in on a mystery country — can you name it before the reveal? NEXTSCENE.",
 };
 
 // Answer pool for the "Guess the Country" series (see generateGuessScript in
@@ -531,10 +582,29 @@ async function main() {
     script = { title: mapScript.title, keywords: mapScript.keywords, segments: mapSegments };
   } else {
     topic = await pickWithPriority(SHORT_TOPIC_POOL, TOPIC_HISTORY_PATH, PRIORITY_QUEUE_PATH, "topic");
-    console.log(`[topic] ${topic}`);
+    // The pillar tag drives both which playlist this video files into
+    // (below, at upload time) AND how Gemini is instructed to write it —
+    // see PILLAR_GUIDANCE in lib/script-gen.mjs. Untagged topics (there
+    // shouldn't be any) fall back to the channel's strongest pillar.
+    const pillar = SHORT_TOPIC_SERIES[topic] ?? "Hidden World";
+    console.log(`[topic] ${topic} (pillar: ${pillar})`);
 
     console.log("[script] generating with Gemini (short form)...");
-    script = await generateScript(topic, { short: true });
+    script = await generateScript(topic, { short: true, pillar });
+
+    // Best-effort fact-check pass (see reviewScriptClaims in
+    // lib/script-gen.mjs) — only applied to this narrative branch, not the
+    // guess/map mystery formats: those already carry their own strict
+    // leak-safety check, lean on deliberately vague well-known geography,
+    // and re-running a second Gemini pass over clue text that already knows
+    // the answer (via `topic`) risks a revised clue accidentally leaking it.
+    console.log("[fact-check] reviewing claims before narration...");
+    const claimTexts = script.segments.map((s) => s.text).concat(script.commentary ? [script.commentary] : []);
+    const { sentences: reviewedTexts } = await reviewScriptClaims(claimTexts, topic);
+    script.segments.forEach((s, i) => {
+      s.text = reviewedTexts[i] ?? s.text;
+    });
+    if (script.commentary) script.commentary = reviewedTexts[script.segments.length] ?? script.commentary;
   }
   console.log(`[script] title: ${script.title} (${script.segments.length} segments)`);
 
@@ -559,6 +629,24 @@ async function main() {
       isCommentary: true,
     });
   }
+
+  // Sept 16 2026 (channel-upgrade brief): a single, deterministic, always-
+  // identical branded closing card appended in code rather than left to the
+  // model — every Short now reliably ends on the exact same short phrase
+  // (see NEXTSCENE_BRAND_LINE in lib/script-gen.mjs) instead of whatever
+  // "follow for more" variant Gemini happened to write that run. The script
+  // prompt is explicitly told NOT to write its own sign-off (see
+  // BEAT_STRUCTURE's PAYOFF note in script-gen.mjs) so this is the only
+  // closing line that ever plays. Kept to one short spoken beat + a flat
+  // branded card (no new photo fetch) so it doesn't meaningfully add to
+  // runtime or hurt retention.
+  script.segments.push({
+    text: `${NEXTSCENE_BRAND_LINE} ${NEXTSCENE_BRAND_SUBLINE}`,
+    location: "",
+    visualQuery: "",
+    visualKind: "brand-close",
+    isBrandClose: true,
+  });
 
   const fullNarration = script.segments.map((s) => s.text).join(" ");
   console.log("[tts] synthesizing narration (en-KE-AsiliaNeural, Kenyan English, female)...");
@@ -611,6 +699,20 @@ async function main() {
         bg: "0x0B0F1A",
       };
       console.log(`  segment ${i}: countdown card "${script.segments[i].countdownNumber}" (${timing.durationSec.toFixed(1)}s)`);
+    } else if (script.segments[i].visualKind === "brand-close") {
+      // Deterministic branded outro card (see NEXTSCENE_BRAND_LINE in
+      // lib/script-gen.mjs) — same flat navy title-card renderer as the
+      // mystery/countdown cards above, so it costs no extra photo fetch and
+      // visually reinforces the brand instead of just being spoken over
+      // ordinary stock footage.
+      visual = {
+        type: "title-card",
+        lines: [NEXTSCENE_BRAND_LINE.toUpperCase(), NEXTSCENE_BRAND_SUBLINE.toUpperCase()],
+        fontsize: 52,
+        subFontsize: 30,
+        bg: "0x0B0F1A",
+      };
+      console.log(`  segment ${i}: brand-close card — "${script.segments[i].text}" (${timing.durationSec.toFixed(1)}s)`);
     } else if (script.segments[i].visualKind === "map" || script.segments[i].visualKind === "map-reveal") {
       // "Map Challenge" clue/reveal segment — a pre-rendered real map
       // graphic (lib/map-challenge.mjs), wired in as a plain

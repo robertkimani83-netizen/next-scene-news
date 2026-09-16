@@ -34,7 +34,7 @@ import {
   CARD_THEMES,
   extractThumbnail,
 } from "./lib/ffmpeg-build.mjs";
-import { generateScript } from "./lib/script-gen.mjs";
+import { generateScript, reviewScriptClaims, NEXTSCENE_BRAND_LINE } from "./lib/script-gen.mjs";
 import { pickWithPriority } from "./lib/topic-history.mjs";
 import {
   uploadToYouTube,
@@ -167,6 +167,14 @@ const TOPIC_POOL = [
   "Top 10 countries building military bases furthest from their own borders",
   "Top 10 countries most likely to redraw their alliances in the next five years",
   "Top 10 countries with the most influence inside the United Nations Security Council",
+  // --- Sept 16 2026 (channel-upgrade brief): Future 2035 is the channel's
+  // thinnest pillar on real analytics — these lean into it directly rather
+  // than another wealth/military ranking. ---
+  "Top 10 technologies already quietly running that will define the next decade",
+  "Top 10 cities being built right now as live tests for how the world will work by 2035",
+  "Top 10 jobs already disappearing to automation faster than anyone predicted",
+  "Top 10 countries betting their entire economy on artificial intelligence",
+  "Top 10 breakthroughs still years away that could still change everything",
 ];
 
 const SUBSCRIBE_LINE =
@@ -178,12 +186,17 @@ const SUBSCRIBE_VISUAL_QUERY =
 const INTRO_WELCOME_LINE =
   "Welcome to NextScene TV — the future uncovered.";
 
+// Sept 16 2026 (channel-upgrade brief): the outro now leads with the
+// channel's one deterministic brand line (see NEXTSCENE_BRAND_LINE in
+// lib/script-gen.mjs, shared with the Shorts pipeline) before the
+// subscribe ask, instead of going straight to a plain "thanks for
+// watching" — same reasoning as the Shorts pipeline's brand-close segment.
 const OUTRO_LINE =
-  "Thanks for watching. Subscribe to NextScene TV for more videos like this one.";
+  `${NEXTSCENE_BRAND_LINE} Subscribe to NextScene for more.`;
 
 const OUTRO_CARD_LINES = [
-  "SUBSCRIBE FOR MORE",
-  "NEXTSCENE TV — THE FUTURE UNCOVERED",
+  NEXTSCENE_BRAND_LINE.toUpperCase(),
+  "NEXTSCENE — THE FUTURE UNCOVERED",
 ];
 
 const INTRO_BG_QUERY =
@@ -191,6 +204,30 @@ const INTRO_BG_QUERY =
 
 const OUTRO_BG_QUERY =
   "city skyline night lights aerial";
+
+// Sept 16 2026 (channel-upgrade brief): long-form's 91-topic TOPIC_POOL
+// predates the 5-pillar system and is almost entirely "Top 10 X" ranking
+// topics, so rather than hand-tag all 91 (a lot of genuinely ambiguous
+// judgment calls for a ranking-format topic), this infers a pillar from
+// each topic's own keywords at pick time and passes it to generateScript()
+// so Gemini writes it in that pillar's voice (see PILLAR_GUIDANCE in
+// lib/script-gen.mjs). Defaults to World Power, the closest fit for a
+// generic "Top 10 countries with the most/strongest/biggest X" ranking.
+// This does NOT yet file long-form videos into per-pillar playlists —
+// long-form still only has the one catch-all PLAYLIST_TITLE below; see the
+// channel-upgrade plan for why that wasn't extended here yet (long-form is
+// 500 views/30 days vs Shorts' 5,988, so the playlist work went to Shorts
+// first, where the real analytics weight actually is).
+function inferPillar(topic) {
+  const t = topic.toLowerCase();
+  if (/\bai\b|artificial intelligence|space program|space exploration|hypersonic|drone warfare|fusion reactor|electric vehicle|by 2050|nuclear power plant|renewable energy|cybersecurity|sovereign ai/.test(t)) {
+    return "Future 2035";
+  }
+  if (/secretly|looks poor|hidden|nobody talks about|underestimate|surprising secret|numbers don't add up|barely covers/.test(t)) {
+    return "Hidden World";
+  }
+  return "World Power";
+}
 
 const PLAYLIST_TITLE =
   "Top 10 & Documentaries — NEXTSCENE TV";
@@ -298,12 +335,17 @@ async function main() {
     "[topic] " + topic
   );
 
+  const pillar = inferPillar(topic);
+  console.log(
+    "[topic] pillar: " + pillar
+  );
+
   console.log(
     "[script] generating with Gemini..."
   );
 
   const script =
-    await generateScript(topic);
+    await generateScript(topic, { pillar });
 
   console.log(
     "[script] title: " +
@@ -312,6 +354,33 @@ async function main() {
       script.segments.length +
       " segments)"
   );
+
+  // Best-effort fact-check pass (see reviewScriptClaims in
+  // lib/script-gen.mjs) — same reasoning as the Shorts pipeline: no human
+  // review gate on scheduled runs, so this softens any claim the model
+  // isn't confident is broadly well-established rather than blocking.
+  console.log(
+    "[fact-check] reviewing claims before narration..."
+  );
+
+  const claimTexts =
+    script.segments
+      .map((s) => s.text)
+      .concat(
+        script.commentary ? [script.commentary] : []
+      );
+
+  const { sentences: reviewedTexts } =
+    await reviewScriptClaims(claimTexts, topic);
+
+  script.segments.forEach((s, i) => {
+    s.text = reviewedTexts[i] ?? s.text;
+  });
+
+  if (script.commentary) {
+    script.commentary =
+      reviewedTexts[script.segments.length] ?? script.commentary;
+  }
 
   const midIndex = Math.max(
     1,
