@@ -29,6 +29,15 @@
 // set, same pattern as the rest of this pipeline):
 //   PEXELS_API_KEY, UNSPLASH_API_KEY (existing)
 //   PIXABAY_API_KEY, COVERR_API_KEY (new)
+//
+// As of the Sept 16 2026 diagnostics pass (the same one applied to
+// audio-library.mjs after the Freesound key turned out to be silently
+// broken for days): every non-ok response from any of these four sources
+// now logs a one-line console.error with the HTTP status and a body
+// snippet, so a bad/revoked PIXABAY_API_KEY or COVERR_API_KEY shows up the
+// same way the Freesound 401 did — in the Actions job log on the very next
+// run — instead of just quietly falling through to the next source (or to
+// a title-card placeholder) with no trace at all.
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -37,6 +46,17 @@ const PEXELS_KEY = process.env.PEXELS_API_KEY;
 const UNSPLASH_KEY = process.env.UNSPLASH_API_KEY;
 const PIXABAY_KEY = process.env.PIXABAY_API_KEY;
 const COVERR_KEY = process.env.COVERR_API_KEY;
+
+/** Logs a one-line diagnostic for a non-ok stock-media API response. */
+async function logBadResponse(source, res) {
+  let bodySnippet = "";
+  try {
+    bodySnippet = (await res.text()).slice(0, 200);
+  } catch {
+    /* ignore */
+  }
+  console.error(`[visuals] ${source} request failed: HTTP ${res.status} — ${bodySnippet}`);
+}
 
 async function downloadTo(url, destPath) {
   const res = await fetch(url);
@@ -53,7 +73,10 @@ async function findPexelsVideo(query) {
     `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`,
     { headers: { Authorization: PEXELS_KEY } }
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logBadResponse("Pexels video search", res);
+    return null;
+  }
   const data = await res.json();
   const video = data.videos?.[0];
   if (!video) return null;
@@ -87,7 +110,10 @@ async function findPixabayVideo(query) {
   const res = await fetch(
     `https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=${encodeURIComponent(query)}&orientation=horizontal&per_page=5&safesearch=true`
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logBadResponse("Pixabay video search", res);
+    return null;
+  }
   const data = await res.json();
   const hit = data.hits?.[0];
   if (!hit) return null;
@@ -121,7 +147,10 @@ async function findCoverrVideo(query) {
     `https://api.coverr.co/videos?query=${encodeURIComponent(query)}&urls=true&page_size=5`,
     { headers: { Authorization: `Bearer ${COVERR_KEY}` } }
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logBadResponse("Coverr video search", res);
+    return null;
+  }
   const data = await res.json();
   const hit = data.hits?.[0];
   if (!hit) return null;
@@ -146,7 +175,10 @@ async function findPixabayPhoto(query) {
   const res = await fetch(
     `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(query)}&orientation=horizontal&per_page=5&safesearch=true&image_type=photo`
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logBadResponse("Pixabay photo search", res);
+    return null;
+  }
   const data = await res.json();
   const hit = data.hits?.[0];
   if (!hit) return null;
@@ -169,6 +201,9 @@ async function findPhoto(query) {
       `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
       { headers: { Authorization: PEXELS_KEY } }
     );
+    if (!res.ok) {
+      await logBadResponse("Pexels photo search", res);
+    }
     if (res.ok) {
       const data = await res.json();
       const photo = data.photos?.[0];
@@ -193,6 +228,9 @@ async function findPhoto(query) {
       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
       { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}` } }
     );
+    if (!res.ok) {
+      await logBadResponse("Unsplash photo search", res);
+    }
     if (res.ok) {
       const data = await res.json();
       const photo = data.results?.[0];
