@@ -94,13 +94,60 @@ jobs:
           if [ -f state/priority-queue-long.json ]; then
             git add state/priority-queue-long.json
           fi
-          if ! git diff --cached --quiet; then
-            git commit -m "Update long-form topic history [skip ci]"
-            git pull --rebase origin main
-            git push
-          else
+          if git diff --cached --quiet; then
             echo "No topic history changes to commit"
+            exit 0
           fi
+          git reset -q
+
+          # Keep this run's versions of the state files aside, then retry
+          # against the latest main. A plain "git pull --rebase" used to fail
+          # with a merge conflict whenever another run had also touched
+          # state/topic-history-long.json since this run checked out.
+          mkdir -p "$RUNNER_TEMP/state-new"
+          cp state/topic-history-long.json "$RUNNER_TEMP/state-new/"
+          if [ -f state/priority-queue-long.json ]; then
+            cp state/priority-queue-long.json "$RUNNER_TEMP/state-new/"
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset -q --hard origin/main
+
+            # Merge topic history: union of both sides, newest timestamp wins.
+            NEW="$RUNNER_TEMP/state-new/topic-history-long.json" node -e '
+              const fs = require("fs");
+              const f = "state/topic-history-long.json";
+              let base = {};
+              try { base = JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) {}
+              const mine = JSON.parse(fs.readFileSync(process.env.NEW, "utf8"));
+              for (const [k, v] of Object.entries(mine)) {
+                if (!base[k] || String(v) > String(base[k])) base[k] = v;
+              }
+              fs.writeFileSync(f, JSON.stringify(base, null, 2) + "\n");
+            '
+            # Priority queue: this run consumed the pick, so its version wins.
+            if [ -f "$RUNNER_TEMP/state-new/priority-queue-long.json" ]; then
+              cp "$RUNNER_TEMP/state-new/priority-queue-long.json" state/priority-queue-long.json
+            fi
+
+            git add state/topic-history-long.json
+            if [ -f state/priority-queue-long.json ]; then
+              git add state/priority-queue-long.json
+            fi
+            if git diff --cached --quiet; then
+              echo "Topic history already up to date on main"
+              exit 0
+            fi
+            git commit -m "Update long-form topic history [skip ci]"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push failed (attempt $attempt of 5) - retrying"
+            sleep $((attempt * 5))
+          done
+          echo "Could not save topic history after 5 attempts"
+          exit 1
 
       - name: Upload video + thumbnail as artifacts for review (kept 7 days)
         if: always()
