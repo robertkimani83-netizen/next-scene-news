@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { loadArticles } from '@/lib/store';
+import {
+  loadArticlesStrict,
+  redisMget,
+  withinHours,
+  STORY_DEDUPE_WINDOW_HOURS,
+} from '@/lib/store';
+import { StoryMatcher } from '@/lib/story-dedupe';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -10,16 +16,6 @@ const SITE_URL = process.env.SITE_URL || 'https://vox254news.vercel.app';
 // (next-article/route.ts) uses. An article should be free to become a
 // Reel even if it's already gone out as a Facebook link post, and vice
 // versa - they're different content, not duplicates of each other.
-async function isPosted(id: string): Promise<boolean> {
-  if (!REDIS_URL || !REDIS_TOKEN) return false;
-  const res = await fetch(`${REDIS_URL}/get/reel-posted:${id}`, {
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-    cache: 'no-store',
-  });
-  const data = await res.json();
-  return !!data.result;
-}
-
 async function markPosted(id: string): Promise<void> {
   if (!REDIS_URL || !REDIS_TOKEN) return;
   await fetch(`${REDIS_URL}/set/reel-posted:${id}/1`, {
@@ -35,7 +31,10 @@ const TRENDING_IMPORTANCE = new Set(['breaking', 'high']);
 
 export async function GET() {
   try {
-    const articles = await loadArticles();
+    const articles = await loadArticlesStrict();
+    const reelFlags = await redisMget(articles.map((a) => `reel-posted:${a.id}`));
+    const reeled = articles.filter((_, i) => !!reelFlags[i]);
+    const matcher = new StoryMatcher(articles);
 
     // A Reel needs a real photo behind it - a video with no visual isn't
     // usable. Two passes: first prefer a genuine, vision-verified photo
@@ -43,12 +42,19 @@ export async function GET() {
     // only fall back to a fallback/stock photo if nothing else is
     // available, so the Reel pipeline doesn't stall dry on a slow news day.
     const eligible: typeof articles = [];
-    for (const article of articles) {
-      if (!article.photo?.url) continue;
-      if (!TRENDING_IMPORTANCE.has(article.importance)) continue;
-      if (await isPosted(article.id)) continue;
+    articles.forEach((article, i) => {
+      if (!article.photo?.url) return;
+      if (!TRENDING_IMPORTANCE.has(article.importance)) return;
+      if (reelFlags[i]) return;
+      // Don't make a second Reel of a story that already has one.
+      const twin = reeled.find(
+        (r) =>
+          withinHours(r.publishedAt, article.publishedAt, STORY_DEDUPE_WINDOW_HOURS) &&
+          matcher.isSameStory(r, article),
+      );
+      if (twin) return;
       eligible.push(article);
-    }
+    });
 
     const pick =
       eligible.find((a) => a.photo && !a.photo.isFallback) ?? eligible[0] ?? null;

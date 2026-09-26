@@ -271,9 +271,21 @@ async function main() {
     // --------------------------------------------------
 
     try {
-      await confirmFacebookPost(
-        article.id
-      );
+      // Retry: a single failed confirmation used to leave the article
+      // unmarked, so a later run could post the same story again.
+      let lastErr;
+      let confirmed = false;
+      for (let attempt = 1; attempt <= 4 && !confirmed; attempt++) {
+        try {
+          await confirmFacebookPost(article.id);
+          confirmed = true;
+        } catch (e) {
+          lastErr = e;
+          console.log(`Confirmation attempt ${attempt} failed: ${e.message}`);
+          if (attempt < 4) await new Promise((r) => setTimeout(r, attempt * 5000));
+        }
+      }
+      if (!confirmed) throw lastErr;
 
       console.log(
         'SUCCESS: Facebook article marked as posted.'

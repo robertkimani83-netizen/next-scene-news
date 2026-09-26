@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import {
-  loadArticles,
+  loadArticlesStrict,
   getDailyPacedCount,
   DAILY_PACED_LIMIT,
-  areLikelyDuplicateHeadlines,
+  redisMget,
+  withinHours,
+  STORY_DEDUPE_WINDOW_HOURS,
+  type StoredArticle,
 } from '@/lib/store';
+import { StoryMatcher, isMemeRoundup } from '@/lib/story-dedupe';
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -17,40 +21,14 @@ const SITE_URL =
 // image URL instead of reusing an older cached card.
 const OG_CARD_VERSION = '4';
 
-async function isPosted(id: string): Promise<boolean> {
-  if (!REDIS_URL || !REDIS_TOKEN) return false;
-
-  try {
-    const res = await fetch(`${REDIS_URL}/get/facebook-posted:${id}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      cache: 'no-store',
-    });
-    const data = await res.json();
-    return !!data.result;
-  } catch {
-    return false;
-  }
-}
-
-async function isClaimed(id: string): Promise<boolean> {
-  if (!REDIS_URL || !REDIS_TOKEN) return false;
-
-  try {
-    const res = await fetch(`${REDIS_URL}/get/facebook-claim:${id}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      cache: 'no-store',
-    });
-    const data = await res.json();
-    return !!data.result;
-  } catch {
-    return false;
-  }
-}
-
+// Claims last 6 hours. The GitHub script releases the claim itself when
+// Make rejects a post, so the long TTL only matters when Make ACCEPTED the
+// post but the website confirmation failed - the case that previously let
+// the same article go out again 30 minutes later.
 async function claimArticle(id: string): Promise<void> {
   if (!REDIS_URL || !REDIS_TOKEN) return;
 
-  await fetch(`${REDIS_URL}/set/facebook-claim:${id}/1/EX/1800`, {
+  await fetch(`${REDIS_URL}/set/facebook-claim:${id}/1/EX/21600`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
   });
@@ -88,34 +66,54 @@ async function hasValidCard(imageUrl: string): Promise<boolean> {
   }
 }
 
+// Recurring memes roundups: at most one on the Page per this many hours.
+const MEME_ROUNDUP_COOLDOWN_HOURS = 72;
+
 export async function GET() {
   try {
-    const articles = await loadArticles();
+    // Strict load + batch status lookups. If Redis can't be read we return
+    // 503 and post NOTHING, instead of assuming "not posted yet".
+    const articles = await loadArticlesStrict();
     const pacedPostedToday = await getDailyPacedCount();
     const dailyCapReached = pacedPostedToday >= DAILY_PACED_LIMIT;
 
-    // Newest articles are first. Once one headline represents an event, do
-    // not release another substantially identical rewrite from another RSS
-    // source to Facebook.
-    const seenHeadlines: string[] = [];
+    const ids = articles.map((a) => a.id);
+    const [postedFlags, claimFlags] = await Promise.all([
+      redisMget(ids.map((id) => `facebook-posted:${id}`)),
+      redisMget(ids.map((id) => `facebook-claim:${id}`)),
+    ]);
 
-    for (const article of articles) {
-      if (await isPosted(article.id)) continue;
-      if (await isClaimed(article.id)) continue;
+    // Everything already on the Page (or in flight right now).
+    const onPage: StoredArticle[] = articles.filter(
+      (a, i) => !!postedFlags[i] || !!claimFlags[i] || a.postedTo?.facebook,
+    );
+    const matcher = new StoryMatcher(articles);
 
-      // Protect against the older direct Facebook publisher as well. If an
-      // article was already marked posted in the persistent article store,
-      // the Make publisher must never publish it a second time.
-      if (article.postedTo?.facebook) continue;
+    // Newest articles are first.
+    for (let i = 0; i < articles.length; i++) {
+      const article = articles[i];
+      if (postedFlags[i] || claimFlags[i] || article.postedTo?.facebook) continue;
 
       const isBreaking = article.importance === 'breaking';
       if (!isBreaking && dailyCapReached) continue;
 
-      if (seenHeadlines.some((headline) => areLikelyDuplicateHeadlines(headline, article.headline))) {
-        console.log(`Skipping duplicate Facebook story: ${article.headline}`);
+      // THE KEY CHECK: never release a story the Page already carried in the
+      // last few days, even if it was re-reported by another outlet under a
+      // different headline. (The old check only compared unposted articles
+      // with each other, so any later rewrite of a posted story went out.)
+      const twin = onPage.find((p) => {
+        if (isMemeRoundup(p) && isMemeRoundup(article)) {
+          return withinHours(p.publishedAt, article.publishedAt, MEME_ROUNDUP_COOLDOWN_HOURS);
+        }
+        return (
+          withinHours(p.publishedAt, article.publishedAt, STORY_DEDUPE_WINDOW_HOURS) &&
+          matcher.isSameStory(p, article)
+        );
+      });
+      if (twin) {
+        console.log(`Skipping repeat of a posted story: "${article.headline}" ~ "${twin.headline}"`);
         continue;
       }
-      seenHeadlines.push(article.headline);
 
       // Facebook cards are never allowed to be blank/gradient-only. The
       // article must have a real stored photo or an honest contextual file

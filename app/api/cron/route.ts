@@ -8,13 +8,17 @@ import {
 } from "@/lib/photos";
 import {
   addArticle,
-  loadArticles,
+  loadArticlesStrict,
+  filterUnseenLinks,
+  markLinksSeen,
+  withinHours,
+  STORY_DEDUPE_WINDOW_HOURS,
   getDailyPacedCount,
   getDailyBreakingCount,
   getUsedPhotoUrls,
-  areLikelyDuplicateHeadlines,
   type StoredArticle,
 } from "@/lib/store";
+import { StoryMatcher } from "@/lib/story-dedupe";
 import { postToInstagram } from "@/lib/social/instagram";
 import { postToX } from "@/lib/social/x";
 
@@ -45,12 +49,26 @@ export async function GET(req: NextRequest) {
   const pacedPostedToday = await getDailyPacedCount();
   const breakingPostedToday = await getDailyBreakingCount();
 
-  const existing = await loadArticles();
+  // If the store can't be read, stop. Treating it as empty would make every
+  // RSS item look new and republish the whole backlog.
+  let existing: StoredArticle[];
+  try {
+    existing = await loadArticlesStrict();
+  } catch (err) {
+    console.error("Article store unavailable - aborting ingest:", err);
+    return NextResponse.json(
+      { error: "Article store unavailable; skipped this run to avoid duplicates" },
+      { status: 503 }
+    );
+  }
   const existingLinks = new Set(existing.map((a) => a.link));
   const usedPhotoUrls = getUsedPhotoUrls(existing);
 
   const raw = await fetchAllFeeds();
-  const candidates = raw.filter((a) => !existingLinks.has(a.link));
+  const notInStore = raw.filter((a) => !existingLinks.has(a.link));
+  // Also skip links processed long ago that fell out of the 200-article list.
+  const unseen = await filterUnseenLinks(notInStore.map((a) => a.link));
+  const candidates = notInStore.filter((a) => unseen.has(a.link));
 
   // Shuffle the RSS candidates so one source does not always dominate.
   for (let i = candidates.length - 1; i > 0; i--) {
@@ -79,9 +97,18 @@ export async function GET(req: NextRequest) {
 
       // Cross-source duplicate protection: the same event often appears
       // under different URLs on Kenyans.co.ke, AllAfrica and Nairobi Wire.
-      if (existing.some((a) => areLikelyDuplicateHeadlines(a.headline, rewritten.headline))) {
+      // Checked BEFORE Instagram/X so a repeat never goes out anywhere.
+      const draft = { headline: rewritten.headline, teaser: rewritten.teaser };
+      const matcher = new StoryMatcher([...existing, draft]);
+      const twin = existing.find(
+        (a) =>
+          withinHours(a.publishedAt, rawArticle.publishedAt, STORY_DEDUPE_WINDOW_HOURS) &&
+          matcher.isSameStory(a, draft)
+      );
+      if (twin) {
         skippedDuplicates.push(rewritten.headline);
-        console.log(`Skipping duplicate story: ${rewritten.headline}`);
+        console.log(`Skipping duplicate story: "${rewritten.headline}" ~ "${twin.headline}"`);
+        await markLinksSeen([rawArticle.link]).catch(() => {});
         continue;
       }
 
@@ -169,6 +196,8 @@ export async function GET(req: NextRequest) {
       }
 
       await addArticle(stored);
+      // Let later items in this same run be compared against it too.
+      existing.unshift(stored);
 
       usedPhotoUrls.add(photoUrl);
       if (photo.url) usedPhotoUrls.add(photo.url);

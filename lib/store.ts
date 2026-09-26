@@ -1,5 +1,6 @@
 import type { RewrittenArticle } from "./ai";
 import type { MatchedPhoto } from "./photos";
+import { StoryMatcher } from "./story-dedupe";
 
 // Uses Upstash Redis's free REST API instead of a local file. Vercel's
 // servers reset their filesystem on every request, so a JSON file (the
@@ -19,22 +20,87 @@ const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const KEY = "next-scene-news:articles";
 
+const SEEN_LINKS_KEY = "next-scene-news:seen-links";
+
+// Strict read: THROWS if Redis can't be read. Anything that writes the
+// article list, or decides what is "new", must use this. The old lenient
+// read returned [] on a hiccup, which made every RSS item look new (new
+// random IDs -> reposted to Facebook) and let addArticle overwrite the
+// whole store with a single article.
+async function redisGetStrict(): Promise<StoredArticle[]> {
+  if (!REDIS_URL || !REDIS_TOKEN) {
+    throw new Error("UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set");
+  }
+
+  const res = await fetch(`${REDIS_URL}/get/${KEY}`, {
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Article store read failed: HTTP ${res.status}`);
+
+  const data = await res.json();
+  if (data.error) throw new Error(`Article store read failed: ${data.error}`);
+  if (!data.result) return [];
+
+  const parsed = JSON.parse(data.result);
+  if (!Array.isArray(parsed)) throw new Error("Article store is not an array");
+  return parsed as StoredArticle[];
+}
+
+// Lenient read for public pages: a Redis blip shows an empty page rather
+// than a crash. Never use this for pipeline decisions.
 async function redisGet(): Promise<StoredArticle[]> {
-  if (!REDIS_URL || !REDIS_TOKEN) return [];
-
   try {
-    const res = await fetch(`${REDIS_URL}/get/${KEY}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      cache: "no-store",
-    });
-    const data = await res.json();
-    if (!data.result) return [];
-
-    const parsed = JSON.parse(data.result);
-    return Array.isArray(parsed) ? (parsed as StoredArticle[]) : [];
+    return await redisGetStrict();
   } catch {
     return [];
   }
+}
+
+/** Pipeline-safe load: throws instead of pretending the store is empty. */
+export async function loadArticlesStrict(): Promise<StoredArticle[]> {
+  return redisGetStrict();
+}
+
+async function redisCommand(command: (string | number)[]): Promise<any> {
+  if (!REDIS_URL || !REDIS_TOKEN) {
+    throw new Error("UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set");
+  }
+  const res = await fetch(REDIS_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${REDIS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(command),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Redis ${command[0]} failed: HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`Redis ${command[0]} failed: ${data.error}`);
+  return data.result;
+}
+
+/**
+ * Permanent memory of every source link ever processed. The article list
+ * only keeps the newest 200, so without this an older story still sitting
+ * in an RSS feed would be re-ingested under a fresh ID and posted again.
+ */
+export async function filterUnseenLinks(links: string[]): Promise<Set<string>> {
+  if (!links.length) return new Set();
+  const flags: number[] = await redisCommand(["SMISMEMBER", SEEN_LINKS_KEY, ...links]);
+  return new Set(links.filter((_, i) => !flags[i]));
+}
+
+export async function markLinksSeen(links: string[]): Promise<void> {
+  if (!links.length) return;
+  await redisCommand(["SADD", SEEN_LINKS_KEY, ...links]);
+}
+
+/** Batch GET of many keys in one request. Throws on failure (fail closed). */
+export async function redisMget(keys: string[]): Promise<(string | null)[]> {
+  if (!keys.length) return [];
+  return redisCommand(["MGET", ...keys]);
 }
 
 async function redisSet(articles: StoredArticle[]): Promise<void> {
@@ -114,26 +180,52 @@ export function getUsedPhotoUrls(articles: StoredArticle[]): Set<string> {
   return urls;
 }
 
-export async function addArticle(article: StoredArticle): Promise<void> {
-  const articles = await redisGet();
+// Same-story window: a rewrite of an event already stored within this many
+// hours is dropped. Follow-up stories days later are still allowed.
+export const STORY_DEDUPE_WINDOW_HOURS = 72;
+
+export function withinHours(a: string | undefined, b: string | undefined, hours: number): boolean {
+  const ta = Date.parse(a || "");
+  const tb = Date.parse(b || "");
+  // Unknown dates: be conservative and treat as close together.
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return true;
+  return Math.abs(ta - tb) <= hours * 3600 * 1000;
+}
+
+export async function addArticle(article: StoredArticle): Promise<boolean> {
+  // Strict read - if Redis is unreachable we must NOT write, or we'd
+  // overwrite the whole store with just this one article.
+  const articles = await redisGetStrict();
+
+  // Remember the link either way, so a skipped duplicate isn't re-fetched
+  // and re-rewritten on every cron run.
+  await markLinksSeen([article.link]).catch((err) =>
+    console.error("Could not record seen link:", err),
+  );
 
   // Never store the same source URL twice.
-  if (articles.some((a) => a.link === article.link)) return;
+  if (articles.some((a) => a.link === article.link)) return false;
 
-  // Also block the same news event from different RSS feeds when the
-  // rewritten headlines are substantially the same. This is the important
-  // cross-source duplicate protection that the old link-only check lacked.
-  if (articles.some((a) => areLikelyDuplicateHeadlines(a.headline, article.headline))) {
-    console.log(`Skipping duplicate story: ${article.headline}`);
-    return;
+  // Block the same news event re-reported by another outlet (or re-worded
+  // by the AI) within the dedupe window.
+  const matcher = new StoryMatcher([...articles, article]);
+  const twin = articles.find(
+    (a) =>
+      withinHours(a.publishedAt, article.publishedAt, STORY_DEDUPE_WINDOW_HOURS) &&
+      matcher.isSameStory(a, article),
+  );
+  if (twin) {
+    console.log(`Skipping duplicate story: "${article.headline}" ~ "${twin.headline}"`);
+    return false;
   }
 
   articles.unshift(article);
   await redisSet(articles.slice(0, 200));
+  return true;
 }
 
 export async function getArticleById(id: string): Promise<StoredArticle | null> {
-  const articles = await redisGet();
+  const articles = await redisGetStrict();
   return articles.find((a) => a.id === id) ?? null;
 }
 
