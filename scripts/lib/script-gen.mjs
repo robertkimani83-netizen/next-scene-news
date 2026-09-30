@@ -62,10 +62,10 @@ const BEAT_STRUCTURE = `Structure the segments like a tiny documentary building 
  *   not just its length.
  */
 export async function generateScript(topic, opts = {}) {
-  const { short = false, pillar } = opts;
+  const { short = false, pillar, deep = false } = opts;
   const guidance = pillarGuidance(pillar);
 
-  const prompt = short
+  let prompt = short
     ? `Write a short, punchy vertical-video (YouTube Shorts) narration script (about 25-40 seconds spoken, roughly 70-110 words) on this topic: "${topic}".
 
 ${guidance}
@@ -120,6 +120,17 @@ Return ONLY valid JSON, no markdown fences, in this exact shape:
 }
 Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every segment about a specific country MUST name that country in both "location" and "visualQuery" — never leave the visual generic when a real place is being discussed, since the footage needs to visibly match the country being talked about.`;
 
+  // Sept 30 2026: deep:true turns the long-form prompt into an 8-10 minute
+  // deep dive. Same JSON shape and one-sentence-per-segment rule (narration
+  // timing maps one sentence to one visual), just far more of them.
+  if (deep && !short) {
+    prompt = prompt
+      .replace("Write a short documentary-style narration script (about 60-90 seconds spoken, roughly 150-220 words)",
+        "Write a long-form documentary narration script (about 8-10 minutes spoken, roughly 1100-1400 words)")
+      .replace("Aim for 10-16 segments total.",
+        `Aim for 80-110 segments total. Organize them as 4-6 clear chapters: (1) the hook and the big question, (2) where this country started and what it was up against, (3) the key decisions, resources or deals that changed everything, told as a story with real names, years and places, (4) the costs, controversies or people left behind, (5) where it goes from here. Open each chapter with one short transition sentence so the viewer always knows where they are. Mix in concrete comparisons the viewer can picture (e.g. "about the size of Nairobi County"). Keep every sentence short and speakable — this is read aloud, not read.`);
+  }
+
   const models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
 
   // Sept 10 2026: real production runs showed every model in one pass
@@ -150,6 +161,7 @@ Each segment.text should be ONE sentence. Aim for 10-16 segments total. Every se
         raw = raw.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
         const parsed = JSON.parse(raw);
         if (!parsed.segments?.length) throw new Error("no segments returned");
+        if (deep && parsed.segments.length < 50) throw new Error(`deep dive too short (${parsed.segments.length} segments)`);
         return parsed;
       } catch (err) {
         lastErr = err;

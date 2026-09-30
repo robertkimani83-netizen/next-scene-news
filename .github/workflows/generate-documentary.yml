@@ -1,20 +1,11 @@
 name: Generate NextScene TV Documentary
 
 on:
-  # PAUSED 2026-09-30: auto-posting stopped while the channel strategy is reworked.
-  # schedule:
-  #  # 3x/week — long-form videos (~60-90s). Mon/Wed/Fri at 16:05 UTC (~7:05pm
-  #  # East Africa Time) — offset 5 minutes past the hour on purpose, since
-  #  # GitHub's own docs warn that schedule events are more likely to be
-  #  # delayed exactly on the hour. Dialed back from 4x/week to trade some
-  #  # volume for more variation per video (each upload draws from a bigger
-  #  # effective slice of the topic pool, and the fix12 template/theme/
-  #  # commentary variation matters more per-video the less often a
-  #  # near-identical pipeline run happens). With the 35-topic pool and the
-  #  # persistent least-recently-used picker (lib/topic-history.mjs), a topic
-  #  # won't repeat for roughly 11-12 weeks at this pace. Shorts stay at
-  #  # 3x/day via generate-short.yml, already in the recommended range.
-  #  - cron: "5 16 * * 1,3,5"
+  # Sept 30 2026 strategy reset: ONE 8-10 minute deep dive a week, Saturday
+  # 15:10 UTC (18:10 Doha / Nairobi), uploaded as PRIVATE for review. Make it
+  # public in YouTube Studio once approved.
+  schedule:
+    - cron: "10 15 * * 6"
   workflow_dispatch:
     inputs:
       upload:
@@ -28,7 +19,7 @@ permissions:
 jobs:
   generate-and-upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90 # a 10-minute video fetches ~100 clips and renders much longer
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +65,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_PRIVACY: private
         run: npm run generate
 
       - name: Save topic history

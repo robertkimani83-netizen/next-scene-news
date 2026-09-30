@@ -77,106 +77,39 @@ const THUMBNAIL_COMPOSITOR = path.join(
   "thumbnail_compositor.py"
 );
 
-const TOPIC_POOL = [
-  "Top 10 countries that look poor but are secretly loaded with wealth",
-  "Top 10 countries with the most powerful militaries in the world right now",
-  "Top 10 countries everyone assumes are safe but actually aren't",
-  "Top 10 members of NATO by military spending and why they matter",
-  "Top 10 countries the world quietly hates and the real reasons why",
-  "Top 10 fastest growing economies in the world and why they're rising",
-  "Top 10 countries banned from things you'd never expect",
-  "Top 10 countries leading the global critical minerals race",
-  "Top 10 countries that look powerful but are secretly struggling",
-  "Top 10 richest countries in Africa by GDP",
-  "Top 10 countries hiding the world's best-kept economic secrets",
-  "Top 10 countries most affected by global water scarcity",
-  "Top 10 countries that seem tiny but secretly control huge global power",
-  "The countries most likely to become superpowers by 2050",
-  "Top 10 countries everyone gets wrong about their real wealth",
-  "Top 10 countries building sovereign AI systems to control their own future",
-  "Top 10 countries the media barely covers but probably should worry you",
-  "Top 10 cities in the world investing the most in future technology",
-  "Top 10 countries where the rich-poor divide will shock you",
-  "Top 10 countries most exposed to the next global trade war",
-  "Top 10 countries secretly preparing for a crisis nobody's talking about",
-  "Top 10 countries with the largest oil and gas reserves",
-  "Top 10 countries that seem friendly but are quietly rivals",
-  "Top 10 countries racing to reduce their dependence on China's rare earths",
-  "Top 10 countries where the official numbers don't add up — and why",
-  "The most powerful passports in the world and what they reveal about global power",
-  "Top 10 countries the world underestimates the most",
-  "Top 10 members of the BRICS alliance and their combined global power",
-  "Top 10 countries hiding surprising secrets behind their wealth",
-  "Top 10 countries leading the world in artificial intelligence development",
-  "Top 10 countries competing for control of the Arctic's hidden resources",
-  "Top 10 countries with the strongest currencies in the world",
-  "Top 10 countries most active in cyber warfare right now",
-  "Top 10 countries most prepared for the next global pandemic",
-  "Top 10 countries with the fastest-growing drone warfare programs",
-  "Top 10 countries with the fastest internet and digital infrastructure",
-  "Top 10 countries most at risk from de-dollarization",
-  "Top 10 nations building the world's most advanced space programs",
-  "Top 10 countries leading the new global race for hypersonic weapons",
-  "Top 10 countries with the largest gold reserves",
-  "Top 10 countries with the most strategic control over global shipping lanes",
-  "The world's most influential trade alliances and what they mean for the future",
-  "Top 10 countries reshaping Africa's alliances in the new global order",
-  "Top 10 countries with the biggest defense budgets",
-  "Top 10 countries in Latin America shifting their political alignment right now",
-  "Top 10 countries leading the global renewable energy race",
-  "Top 10 countries with the most influence over global semiconductor supply",
-  "The nations racing to control the world's rare earth minerals",
-  "Top 10 countries preparing for war over the world's most contested borders",
-  "Top 10 countries with the most billionaires and why they cluster there",
-  "Top 10 countries with the largest stockpiles of critical minerals",
-  "Top 10 countries with the most advanced healthcare systems in the world",
-  "Top 10 countries building the next generation of nuclear submarines",
-  "Top 10 countries producing the most electric vehicles",
-  "Top 10 countries most likely to trigger the next global conflict",
-  "Top 10 countries with the highest quality of life right now",
-  "Top 10 countries with the most powerful intelligence-sharing alliances",
-  "The nations most at risk of running out of fresh water",
-  "Top 10 countries betting everything on space militarization",
-  "Top 10 countries dominating global semiconductor production",
-  "Top 10 countries with the strongest grip on the world's energy supply",
-  "Top 10 countries with the largest and most modern navies",
-  "Top 10 countries quietly preparing for a war over Taiwan",
-  "The world's fastest-growing tech hubs outside Silicon Valley",
-  "Top 10 countries with the fastest-growing defense industries",
-  "Top 10 countries with the most nuclear power plants",
-  "Top 10 countries most vulnerable to a global currency crisis",
-  "Top 10 countries leading the global shift to electric transportation",
-  "Top 10 countries using economic sanctions as their most powerful weapon",
-  "The nations quietly building the world's next financial centers",
-  "Top 10 countries forming new alliances to counter Western influence",
-  "Top 10 countries with the most advanced cybersecurity capabilities",
-  "Top 10 countries with the most advanced missile defense systems",
-  "Top 10 countries with the youngest and fastest-growing populations",
-  "Top 10 countries racing to dominate the global lithium and battery supply chain",
-  "The countries positioned to dominate the global chip war",
-  "Top 10 countries where migration is quietly reshaping global power",
-  "Top 10 countries with the strongest manufacturing sectors",
-  "Top 10 countries with the biggest stake in the Middle East's new balance of power",
-  "Top 10 countries investing the most in space exploration",
-  "Top 10 countries most dependent on a single foreign power for survival",
-  "The nations racing to build the first commercial fusion reactors",
-  "Top 10 countries investing the most in underwater cable and data infrastructure security",
-  "Top 10 countries with the most powerful economic sanctions leverage",
-  "Top 10 countries with the most contested maritime borders in the world",
-  "Top 10 countries where state control over private companies is growing fastest",
-  "Top 10 countries with the most at stake in the global race for nuclear energy",
-  "Top 10 countries building military bases furthest from their own borders",
-  "Top 10 countries most likely to redraw their alliances in the next five years",
-  "Top 10 countries with the most influence inside the United Nations Security Council",
-  // --- Sept 16 2026 (channel-upgrade brief): Future 2035 is the channel's
-  // thinnest pillar on real analytics — these lean into it directly rather
-  // than another wealth/military ranking. ---
-  "Top 10 technologies already quietly running that will define the next decade",
-  "Top 10 cities being built right now as live tests for how the world will work by 2035",
-  "Top 10 jobs already disappearing to automation faster than anyone predicted",
-  "Top 10 countries betting their entire economy on artificial intelligence",
-  "Top 10 breakthroughs still years away that could still change everything",
+// Sept 30 2026 strategy reset: long-form is now ONE 8-10 minute deep dive a
+// week, expanding the Money & Power stories that performed best as Shorts.
+// The old 91-topic 'Top 10' pool is retired (long-form averaged a handful
+// of views per video).
+const MONEY_DEEP_DIVES = [
+  "How Luxembourg became the richest country on Earth",
+  "How tiny island nations became billionaire playgrounds",
+  "The richest tiny countries on Earth and how they did it",
+  "Which countries have the most gold, and why they're hoarding it",
+  "How Qatar went from pearl diving to one of the richest nations on Earth",
+  "How Dubai built a global city in one lifetime",
+  "How Saudi Arabia plans to survive after oil",
+  "How Botswana turned diamonds into Africa's quiet success story",
+  "How Kenya became the world leader in mobile money",
+  "How Rwanda rebuilt its economy in one generation",
+  "How Mauritius became Africa's richest country per person",
+  "Why Nigeria's oil wealth never reached most Nigerians",
+  "How South Korea went from poorer than Kenya to a tech giant",
+  "How Singapore went from swamp to financial superpower",
+  "How Norway turned oil into the world's biggest savings fund",
+  "How Switzerland got rich by staying neutral",
+  "How Venezuela went from richest in South America to collapse",
+  "How the Gulf states are spending oil money to buy the future",
+  "How China lifted hundreds of millions out of poverty",
+  "Why the US dollar still rules the world, and who is trying to replace it",
 ];
+
+const POWER_DEEP_DIVES = [
+  "The chokepoints that control the world's oil and trade",
+  "The global race for lithium, cobalt and the metals of the future",
+];
+
+const TOPIC_POOL = [...MONEY_DEEP_DIVES, ...POWER_DEEP_DIVES];
 
 const SUBSCRIBE_LINE =
   "If you're finding this useful, hit subscribe — it really helps this channel grow.";
@@ -220,21 +153,14 @@ const OUTRO_BG_QUERY =
 // 500 views/30 days vs Shorts' 5,988, so the playlist work went to Shorts
 // first, where the real analytics weight actually is).
 function inferPillar(topic) {
-  const t = topic.toLowerCase();
-  if (/\bai\b|artificial intelligence|space program|space exploration|hypersonic|drone warfare|fusion reactor|electric vehicle|by 2050|nuclear power plant|renewable energy|cybersecurity|sovereign ai/.test(t)) {
-    return "Future 2035";
-  }
-  if (/secretly|looks poor|hidden|nobody talks about|underestimate|surprising secret|numbers don't add up|barely covers/.test(t)) {
-    return "Hidden World";
-  }
-  return "World Power";
+  return POWER_DEEP_DIVES.includes(topic) ? "World Power" : "Money & Power";
 }
 
 const PLAYLIST_TITLE =
-  "Top 10 & Documentaries — NEXTSCENE TV";
+  "Deep Dives — NEXTSCENE TV";
 
 const PLAYLIST_DESCRIPTION =
-  "Full-length Top 10 rankings, power comparisons, and future-prediction documentaries from NEXTSCENE TV — the future uncovered.";
+  "8-10 minute deep dives into how countries really got rich, and the money and power behind them — NEXTSCENE TV.";
 
 /*
  * Generate exactly ONE custom thumbnail.
@@ -346,7 +272,7 @@ async function main() {
   );
 
   const script =
-    await generateScript(topic, { pillar });
+    await generateScript(topic, { pillar, deep: true });
 
   console.log(
     "[script] title: " +
