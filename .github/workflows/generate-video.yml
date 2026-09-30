@@ -2,8 +2,9 @@ name: Generate and Upload YouTube Video
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 * * * *'
+  # PAUSED 2026-09-30: auto-posting stopped while the channel strategy is reworked.
+  # schedule:
+  #  - cron: '0 * * * *'
 
 jobs:
   generate-video:

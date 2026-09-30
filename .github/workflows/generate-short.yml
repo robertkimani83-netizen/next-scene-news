@@ -1,8 +1,9 @@
 name: Generate NextScene TV Short
 
 on:
-  schedule:
-        - cron: "5 2,8,14,20 * * *"
+  # PAUSED 2026-09-30: auto-posting stopped while the channel strategy is reworked.
+  # schedule:
+  #      - cron: "5 2,8,14,20 * * *"
   workflow_dispatch:
     inputs:
       upload:
