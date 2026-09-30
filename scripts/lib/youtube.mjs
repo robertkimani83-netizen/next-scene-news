@@ -39,7 +39,9 @@ export async function uploadToYouTube(videoPath, title, description, opts = {}) 
       tags,
       categoryId, // 25 = News & Politics
     },
-    status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
+    // YOUTUBE_PRIVACY=private lets a scheduled run upload for review; the
+    // owner makes it public from YouTube Studio once approved.
+    status: { privacyStatus: opts.privacy || process.env.YOUTUBE_PRIVACY || "public", selfDeclaredMadeForKids: false },
   };
 
   const boundary = "nextscenedocumentaryboundary";

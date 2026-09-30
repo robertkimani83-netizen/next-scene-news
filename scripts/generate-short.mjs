@@ -79,152 +79,77 @@ const PRIORITY_QUEUE_PATH = path.join(__dirname, "..", "state", "priority-queue-
 // than kept as its own separate playlist, per the brief's "don't create
 // dozens of tiny playlists" instruction — the topic text itself is
 // unchanged, only its tag.
-const SHORT_TOPIC_POOL = [
-  // --- Hidden World pillar — strange/hidden places; real analytics' best
-  // performer (see the channel-upgrade plan) ---
-  "The country that looks poor but is secretly one of the richest on Earth",
-  "The tiny country secretly more powerful than nations 100 times its size",
-  "Why this country looks broke but is actually loaded",
-  "The places on Earth that look like another planet",
-  "The abandoned cities that look frozen in time",
-  "What if Africa became a single unified country?",
-  "The village so remote almost nobody outside it knows it exists",
-  "The island that was empty 40 years ago and is unrecognizable today",
-  "The underground city built to survive something that never came",
-  // --- Strange Borders pillar (the Sept 16 map-literacy wave lives here) ---
-  "Why Greenland looks bigger than Africa on most maps (it's nowhere close)",
-  "The map projection almost every country secretly disagrees with",
-  "Why some countries print maps that include territory they don't actually control",
-  "The country that doesn't look the same on any two official maps",
-  "Why Google Maps quietly shows different borders depending on where you live",
-  "The disputed borders that look completely different depending on whose map you're reading",
-  "Why Alaska looks huge on the map but isn't nearly as big as you think",
-  "The countries that have actually changed shape on the map in your lifetime",
-  "Why Africa is big enough to fit the USA, China, India and most of Europe inside it",
-  "The tiny dots on the map that are actually entire countries",
-  "Why some maps still show borders and countries that don't exist anymore",
-  "The countries whose borders were drawn by people who'd never even set foot there",
-  "Why time zones on the map make way less sense than you'd expect",
-  "The country split by a border so narrow you could walk across it in minutes",
-  "Why a few islands still shown on maps today don't actually exist",
-  "The real distance between countries the map is quietly lying to you about",
-  "Why Russia covers an eighth of the world's land but still isn't unbeatable",
-  "The countries hiding in plain sight most people couldn't point to on a map",
-  "Why the equator doesn't pass through where most people assume it does",
-  "The map every country quietly draws a little differently to look bigger",
-  "Why China and India can't stop fighting over this border",
-  // --- Future 2035 pillar — thinnest pillar on the real channel today (see
-  // the channel-upgrade plan), so this got the biggest new wave. Every
-  // topic here is written so the script prompt's CONFIRMED / UNDER
-  // DEVELOPMENT / PREDICTION labeling (see PILLAR_GUIDANCE in
-  // lib/script-gen.mjs) has real, specific material to work with instead of
-  // vague futurism. ---
-  "What the world could actually look like by 2050",
-  "What happens if AI ever becomes smarter than humans",
-  "The airports already being redesigned for planes that don't exist yet",
-  "The city being built from scratch as a live test for how we'll all live by 2035",
-  "The jobs already quietly disappearing to automation right now",
-  "The transportation technology already running in one country and coming everywhere else",
-  "Why some countries are betting their entire future on a technology that doesn't fully work yet",
-  "The energy source expected to quietly take over within a decade",
-  "The country testing what an entire AI-run city could actually look like",
-  // --- World Power pillar — trade routes, chokepoints, strategic resources ---
+// Sept 30 2026 strategy reset: the channel's analytics showed the only
+// Shorts that reliably earned watch-through AND subscribers were "how this
+// country got rich" money stories (Luxembourg, the Rejected Island, the
+// Richest Tiny Country). Everything else — quiz/zoom formats, borders, broad
+// futurism — got views without loyalty or no views at all. The pool is now
+// locked to that one niche (Money & Power) plus a handful of World Power
+// trade/resource topics, with a Gulf and Africa angle as the differentiator.
+// Topics the channel already covered (Luxembourg, Monaco, Singapore,
+// Switzerland, Norway, Qatar, Dubai, Ireland) are deliberately left out.
+const MONEY_TOPICS = [
+  "How Liechtenstein became one of the richest countries on Earth",
+  "How Brunei made its citizens rich without income tax",
+  "How Botswana turned diamonds into Africa's quiet success story",
+  "How Mauritius became Africa's richest country per person",
+  "How Rwanda rebuilt its economy in one generation",
+  "How Kuwait's oil fund is set to outlive its oil",
+  "How Saudi Arabia plans to get rich after oil",
+  "How Bahrain became the Gulf's banking hub",
+  "How Oman is betting its future beyond oil",
+  "How Kenya became Africa's mobile money leader",
+  "How Ethiopia became one of Africa's fastest-growing economies",
+  "How Morocco is turning the desert into an energy export",
+  "How Nigeria's oil wealth disappeared",
+  "Why Equatorial Guinea is rich on paper but poor on the ground",
+  "How the Cayman Islands became a trillion-dollar finance hub",
+  "How Bermuda got rich from insurance",
+  "How Andorra became a millionaire's hideout",
+  "How San Marino survives surrounded by Italy",
+  "How Malta made money selling passports",
+  "How Estonia turned itself into a tech economy",
+  "How Israel became a startup superpower",
+  "How Vietnam became the world's new factory",
+  "How Bangladesh built a garment empire",
+  "How Chile got rich from copper",
+  "How Panama made billions from a canal",
+  "How Hong Kong became a global money hub",
+  "How Macau became richer per person than most of Europe",
+  "How the Netherlands became the world's second biggest food exporter",
+  "How Denmark turned wind into an export business",
+  "How Guyana went from poor to oil boom almost overnight",
+  "How Venezuela went from richest in South America to crisis",
+  "How Argentina went from one of the richest countries in the world to repeated crisis",
+  "How Japan's economy got stuck for 30 years",
+  "How South Korea went from poorer than Kenya to a tech giant",
+  "How China lifted hundreds of millions out of poverty",
+  "Why the Gulf states are buying football clubs",
+  "Why sovereign wealth funds now own pieces of everything",
+  "Why so much of Africa's cobalt goes to China",
+  "Why gold is flowing into Dubai",
+  "Why the US dollar still rules world trade",
+];
+
+const POWER_TOPICS = [
   "The country nobody talks about that secretly controls global trade",
-  "The silent chip war between the US and China nobody can win outright",
-  "The flashpoint that could turn Taiwan into a global crisis overnight",
-  "USA vs China vs India: which superpower actually comes out on top?",
   "The canal one blockage away from disrupting global trade",
   "The chokepoint quietly controlling more of the world's oil than most people realize",
   "Why one port decides how expensive almost everything you own gets",
-  // --- You Didn't Know pillar — one specific surprising fact, explained,
-  // then twisted ---
-  "The country everyone hates and the real reason why",
-  "Why everyone gets this country's wealth completely wrong",
-  "Facts about Africa most people have never heard",
-  "Did you know some countries have no army at all?",
-  "The strangest laws that actually exist around the world",
-  "The number almost everyone gets wrong about how big the oceans actually are",
-  "The everyday item that quietly started a real dispute between two countries",
+  "The silent chip war between the US and China nobody can win outright",
 ];
 
-// Maps every SHORT_TOPIC_POOL topic to one of the channel's 5 content
-// pillars (see the Sept 16 2026 channel-upgrade plan). This tag does DOUBLE
-// DUTY: it's still which YouTube playlist the finished video gets filed
-// into (created on first use, same as before), AND it's now also passed to
-// generateScript() as the `pillar` option, which changes HOW Gemini writes
-// the script for that topic (see PILLAR_GUIDANCE in lib/script-gen.mjs) —
-// so this one tag drives both organization AND the actual writing style,
-// instead of being purely a playlist label like the old SHORT_TOPIC_SERIES
-// was. An untagged topic (there shouldn't be any left below, but the
-// fallback exists for safety) defaults to the "Hidden World" pillar, both
-// for playlist filing and for script guidance.
+const SHORT_TOPIC_POOL = [...MONEY_TOPICS, ...POWER_TOPICS];
+
+// Tag drives both the playlist and the script style (see PILLAR_GUIDANCE in
+// lib/script-gen.mjs).
 const SHORT_TOPIC_SERIES = Object.fromEntries([
-  ...[
-    "The country that looks poor but is secretly one of the richest on Earth",
-    "The tiny country secretly more powerful than nations 100 times its size",
-    "Why this country looks broke but is actually loaded",
-    "The places on Earth that look like another planet",
-    "The abandoned cities that look frozen in time",
-    "What if Africa became a single unified country?",
-    "The village so remote almost nobody outside it knows it exists",
-    "The island that was empty 40 years ago and is unrecognizable today",
-    "The underground city built to survive something that never came",
-  ].map((t) => [t, "Hidden World"]),
-  ...[
-    "Why Greenland looks bigger than Africa on most maps (it's nowhere close)",
-    "The map projection almost every country secretly disagrees with",
-    "Why some countries print maps that include territory they don't actually control",
-    "The country that doesn't look the same on any two official maps",
-    "Why Google Maps quietly shows different borders depending on where you live",
-    "The disputed borders that look completely different depending on whose map you're reading",
-    "Why Alaska looks huge on the map but isn't nearly as big as you think",
-    "The countries that have actually changed shape on the map in your lifetime",
-    "Why Africa is big enough to fit the USA, China, India and most of Europe inside it",
-    "The tiny dots on the map that are actually entire countries",
-    "Why some maps still show borders and countries that don't exist anymore",
-    "The countries whose borders were drawn by people who'd never even set foot there",
-    "Why time zones on the map make way less sense than you'd expect",
-    "The country split by a border so narrow you could walk across it in minutes",
-    "Why a few islands still shown on maps today don't actually exist",
-    "The real distance between countries the map is quietly lying to you about",
-    "Why Russia covers an eighth of the world's land but still isn't unbeatable",
-    "The countries hiding in plain sight most people couldn't point to on a map",
-    "Why the equator doesn't pass through where most people assume it does",
-    "The map every country quietly draws a little differently to look bigger",
-    "Why China and India can't stop fighting over this border",
-  ].map((t) => [t, "Strange Borders"]),
-  ...[
-    "What the world could actually look like by 2050",
-    "What happens if AI ever becomes smarter than humans",
-    "The airports already being redesigned for planes that don't exist yet",
-    "The city being built from scratch as a live test for how we'll all live by 2035",
-    "The jobs already quietly disappearing to automation right now",
-    "The transportation technology already running in one country and coming everywhere else",
-    "Why some countries are betting their entire future on a technology that doesn't fully work yet",
-    "The energy source expected to quietly take over within a decade",
-    "The country testing what an entire AI-run city could actually look like",
-  ].map((t) => [t, "Future 2035"]),
-  ...[
-    "The country nobody talks about that secretly controls global trade",
-    "The silent chip war between the US and China nobody can win outright",
-    "The flashpoint that could turn Taiwan into a global crisis overnight",
-    "USA vs China vs India: which superpower actually comes out on top?",
-    "The canal one blockage away from disrupting global trade",
-    "The chokepoint quietly controlling more of the world's oil than most people realize",
-    "Why one port decides how expensive almost everything you own gets",
-  ].map((t) => [t, "World Power"]),
-  ...[
-    "The country everyone hates and the real reason why",
-    "Why everyone gets this country's wealth completely wrong",
-    "Facts about Africa most people have never heard",
-    "Did you know some countries have no army at all?",
-    "The strangest laws that actually exist around the world",
-    "The number almost everyone gets wrong about how big the oceans actually are",
-    "The everyday item that quietly started a real dispute between two countries",
-  ].map((t) => [t, "You Didn't Know"]),
+  ...MONEY_TOPICS.map((t) => [t, "Money & Power"]),
+  ...POWER_TOPICS.map((t) => [t, "World Power"]),
 ]);
 
 const SERIES_DESCRIPTIONS = {
+  "Money & Power": "How countries really got rich, and the money and power behind them — NEXTSCENE.",
   "Hidden World": "Strange places, hidden locations and geographic anomalies most people have never heard of — NEXTSCENE.",
   "Strange Borders": "Borders, enclaves, disputed maps and territorial oddities that make no sense until you know why — NEXTSCENE.",
   "Future 2035": "Real technology already changing the world, and honest predictions about where it's headed next — NEXTSCENE.",
@@ -308,7 +233,9 @@ const SHORT_GUESS_POOL = [
 // best-performing video this same month ("How This Rejected Island Became
 // a Billionaire Playground") was a narrative piece, not a mystery format —
 // a strong curiosity-gap narrative title still wins sometimes.
-const GUESS_FORMAT_PROBABILITY = 0.32;
+// Sept 30 2026: quiz formats retired (views without subscribers). Kept at 0
+// rather than deleted so the code paths stay intact if ever revisited.
+const GUESS_FORMAT_PROBABILITY = 0;
 
 // Answer pool for the "Map Challenge" series (see generateMapClueScript in
 // lib/script-gen.mjs and lib/map-challenge.mjs) — same countries as
@@ -392,7 +319,7 @@ const MAP_CHALLENGE_POOL = [
 // Shorts into a mystery format and leaves 1 in 3 as narrative — a real
 // shift toward what's proven to work without abandoning the format that
 // still occasionally produces the channel's single best video.
-const MAP_FORMAT_PROBABILITY = 0.33;
+const MAP_FORMAT_PROBABILITY = 0;
 
 // Background photo behind the intro card — same idea as the long-form
 // pipeline's INTRO_BG_QUERY; non-fatal if nothing is found, renderTitleCard
@@ -454,11 +381,11 @@ async function main() {
     isGuessFormat = false;
     isMapFormat = false;
     console.log("[format] a trending topic is queued — forcing normal topic format instead of the random roll");
-  } else if (queuedKeys.guess) {
+  } else if (false && queuedKeys.guess) {
     isGuessFormat = true;
     isMapFormat = false;
     console.log("[format] a queued pick is waiting for Guess the Country — forcing that format instead of the random roll");
-  } else if (queuedKeys.map) {
+  } else if (false && queuedKeys.map) {
     isGuessFormat = false;
     isMapFormat = true;
     console.log("[format] a queued pick is waiting for Map Challenge — forcing that format instead of the random roll");
@@ -587,7 +514,7 @@ async function main() {
     // (below, at upload time) AND how Gemini is instructed to write it —
     // see PILLAR_GUIDANCE in lib/script-gen.mjs. Untagged topics (there
     // shouldn't be any) fall back to the channel's strongest pillar.
-    const pillar = SHORT_TOPIC_SERIES[topic] ?? "Hidden World";
+    const pillar = SHORT_TOPIC_SERIES[topic] ?? "Money & Power";
     console.log(`[topic] ${topic} (pillar: ${pillar})`);
 
     console.log("[script] generating with Gemini (short form)...");

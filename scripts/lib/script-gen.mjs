@@ -17,6 +17,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // fall back to the Hidden World guidance, which is the safest default (it's
 // also the pillar real channel analytics show performs best).
 const PILLAR_GUIDANCE = {
+  "Money & Power":
+    `This is a MONEY & POWER story — how one specific country (or city) actually got rich, lost its wealth, or uses money as power. Open with the single most surprising number or contrast in the first sentence (e.g. poorer than X in 1960, richer than Y today). Then explain the REAL mechanism in plain words — the specific decision, resource, law or deal that made the difference — and end with a twist or a cost most people don't know about. Use only figures that are well established and broadly reported; if unsure of an exact number, round it or describe it instead of inventing precision. No hype words like "insane" or "secret" unless the fact truly earns it.`,
   "Hidden World":
     `This is a HIDDEN WORLD story — a strange place, hidden location, unusual city, remote territory, geographic anomaly, or place with unusual rules that most people have never heard of. The viewer should finish thinking "I didn't know that existed." This is the channel's strongest-performing pillar on real analytics, so lean all the way into genuine surprise rather than playing it safe.`,
   "You Didn't Know":

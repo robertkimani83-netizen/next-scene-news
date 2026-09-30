@@ -1,9 +1,11 @@
 name: Generate NextScene TV Short
 
 on:
-  # PAUSED 2026-09-30: auto-posting stopped while the channel strategy is reworked.
-  # schedule:
-  #      - cron: "5 2,8,14,20 * * *"
+  # Sept 30 2026 strategy reset: ONE Short a day (was 4x/day), uploaded as
+  # PRIVATE so it only goes live once approved in YouTube Studio.
+  # 15:05 UTC = 18:05 Doha / 18:05 Nairobi.
+  schedule:
+    - cron: "5 15 * * *"
   workflow_dispatch:
     inputs:
       upload:
@@ -16,8 +18,6 @@ on:
         options:
           - auto
           - normal
-          - guess
-          - map
         default: auto
 
 permissions:
@@ -74,6 +74,9 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           FORCE_SHORT_FORMAT: ${{ github.event.inputs.format }}
+          # Every upload lands as private for review. Make it public in
+          # YouTube Studio once you're happy with it.
+          YOUTUBE_PRIVACY: private
         run: npm run generate-short
 
       - name: Save topic history
