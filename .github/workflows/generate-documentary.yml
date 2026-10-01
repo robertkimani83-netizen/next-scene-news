@@ -12,6 +12,13 @@ on:
         description: "Actually upload to YouTube? Leave unchecked to just generate a video and review it first."
         type: boolean
         default: false
+      privacy:
+        description: "Upload as private (review in YouTube Studio first) or public (goes live immediately). Scheduled runs are always private."
+        type: choice
+        options:
+          - private
+          - public
+        default: private
 
 permissions:
   contents: write # needed so the "Save topic history" step below can commit/push
@@ -65,7 +72,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          YOUTUBE_PRIVACY: private
+          YOUTUBE_PRIVACY: ${{ github.event.inputs.privacy || 'private' }}
         run: npm run generate
 
       - name: Save topic history
