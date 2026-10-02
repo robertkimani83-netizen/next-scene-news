@@ -3,7 +3,9 @@ name: Post to Facebook
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/20 * * * *'
+    # Oct 2 2026: hourly (was every 20 min) — the 20-min cadence used ~888 of
+    # Make's 1,000 free monthly credits on its own and starved the Reel scenario.
+    - cron: '20 * * * *'
 
 # Only one Facebook publisher run may be active at a time. This prevents
 # overlapping scheduled runs from selecting the same article before its
