@@ -21,6 +21,37 @@ const CRON_SECRET = process.env.CRON_SECRET;
 
 const POSTS_PER_RUN = 3;
 
+// Oct 2026: post straight to the Facebook Graph API. Make's free plan
+// (1,000 credits/month) ran out, so Make kept replying "Accepted" while
+// nothing was published. Make is now only a fallback when no Page token is set.
+const FB_TOKEN = (process.env.FACEBOOK_PAGE_ACCESS_TOKEN || '').trim();
+const FB_PAGE_ID = (process.env.FACEBOOK_PAGE_ID || '').trim();
+const GRAPH = 'https://graph.facebook.com/v26.0';
+const DIRECT = Boolean(FB_TOKEN && FB_PAGE_ID);
+
+function buildCaption(article) {
+  const base = String(article.facebookCaption || [article.title, article.teaser].filter(Boolean).join('\n\n')).trim();
+  if (article.articleUrl && !base.includes(article.articleUrl)) {
+    return base + '\n\nRead more: ' + article.articleUrl;
+  }
+  return base;
+}
+
+async function postDirectToFacebook(article) {
+  const body = new URLSearchParams({
+    url: article.imageUrl,
+    caption: buildCaption(article),
+    access_token: FB_TOKEN,
+  });
+  const res = await fetch(GRAPH + '/' + FB_PAGE_ID + '/photos', { method: 'POST', body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.id) {
+    throw new Error('Facebook Graph API ' + res.status + ': ' + (data && data.error ? data.error.message : JSON.stringify(data)));
+  }
+  console.log('Published on Facebook. Post id:', data.post_id || data.id);
+  return data;
+}
+
 async function getArticle() {
   const res = await fetch(
     `${SITE_URL}/api/social/next-article`
@@ -71,6 +102,8 @@ async function validateCard(imageUrl) {
 }
 
 async function postToFacebook(article) {
+  if (DIRECT) return postDirectToFacebook(article);
+
   const body = {
     title: article.title,
     teaser: article.teaser,
@@ -187,9 +220,9 @@ async function main() {
     process.exit(1);
   }
 
-  if (!MAKE_WEBHOOK_URL) {
+  if (!DIRECT && !MAKE_WEBHOOK_URL) {
     console.log(
-      'MAKE_WEBHOOK_URL is not set. Aborting.'
+      'Neither FACEBOOK_PAGE_ACCESS_TOKEN/FACEBOOK_PAGE_ID nor MAKE_WEBHOOK_URL is set. Aborting.'
     );
     process.exit(1);
   }
@@ -304,6 +337,12 @@ async function main() {
       console.error(
         'The Facebook claim was NOT released to prevent a possible duplicate post.'
       );
+
+      // Stop this run: without confirmation the site can't mark stories as
+      // posted, so continuing could publish duplicates later.
+      console.error('Stopping this run until the website confirmation (CRON_SECRET) works again.');
+      process.exitCode = 1;
+      break;
     }
   }
 }
