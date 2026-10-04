@@ -44,6 +44,11 @@ export async function GET() {
     const eligible: typeof articles = [];
     articles.forEach((article, i) => {
       if (!article.photo?.url) return;
+      // Oct 4 2026: some stored photo URLs point at our own branded headline
+      // card (/api/og/...). Used as a Reel background, the headline got
+      // drawn twice and came out as unreadable stacked text. Same exclusion
+      // lib/store.ts and next-article already apply.
+      if (article.photo.url.includes('/api/og/')) return;
       if (!TRENDING_IMPORTANCE.has(article.importance)) return;
       if (reelFlags[i]) return;
       // Don't make a second Reel of a story that already has one.
