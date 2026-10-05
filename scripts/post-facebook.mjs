@@ -17,7 +17,7 @@ function normalizeUnicodeText(text) {
 }
 const SITE_URL = process.env.SITE_URL;
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL;
-const CRON_SECRET = process.env.CRON_SECRET;
+const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
 
 const POSTS_PER_RUN = 3;
 

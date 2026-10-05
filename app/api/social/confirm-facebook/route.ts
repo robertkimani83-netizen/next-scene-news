@@ -73,11 +73,15 @@ async function releaseClaim(id: string): Promise<void> {
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get('authorization');
-  const providedSecret = auth?.replace('Bearer ', '');
+  // Trim both sides: a secret pasted into Vercel/GitHub with a trailing
+  // space or newline otherwise fails with a confusing 401.
+  const providedSecret = auth?.replace(/^Bearer\s+/i, '').trim();
+  const expectedSecret = (process.env.CRON_SECRET || '').trim();
 
   if (
     !providedSecret ||
-    providedSecret !== process.env.CRON_SECRET
+    !expectedSecret ||
+    providedSecret !== expectedSecret
   ) {
     return NextResponse.json(
       { error: 'Unauthorized' },
