@@ -44,11 +44,6 @@ export async function GET() {
     const eligible: typeof articles = [];
     articles.forEach((article, i) => {
       if (!article.photo?.url) return;
-      // Oct 4 2026: some stored photo URLs point at our own branded headline
-      // card (/api/og/...). Used as a Reel background, the headline got
-      // drawn twice and came out as unreadable stacked text. Same exclusion
-      // lib/store.ts and next-article already apply.
-      if (article.photo.url.includes('/api/og/')) return;
       if (!TRENDING_IMPORTANCE.has(article.importance)) return;
       if (reelFlags[i]) return;
       // Don't make a second Reel of a story that already has one.
@@ -61,8 +56,16 @@ export async function GET() {
       eligible.push(article);
     });
 
+    // Some stored photo URLs are our own branded headline card (/api/og/...).
+    // Prefer a real, vision-verified photo, then any real photo, and only
+    // then a headline card (the reel script lays cards out differently so
+    // the headline isn't drawn twice - see isCard below).
+    const isCardUrl = (url: string) => url.includes('/api/og/');
     const pick =
-      eligible.find((a) => a.photo && !a.photo.isFallback) ?? eligible[0] ?? null;
+      eligible.find((a) => !a.photo!.isFallback && !isCardUrl(a.photo!.url)) ??
+      eligible.find((a) => !isCardUrl(a.photo!.url)) ??
+      eligible[0] ??
+      null;
 
     if (!pick) {
       return NextResponse.json({ error: 'No unposted trending (breaking/high importance) articles with a usable photo found' }, { status: 404 });
@@ -79,6 +82,7 @@ export async function GET() {
       // gets used as the video's visual, so it should be the actual,
       // vision-verified news photo rather than a flat headline graphic.
       imageUrl: pick.photo!.url,
+      isCard: isCardUrl(pick.photo!.url),
       photoCredit: pick.photo!.credit,
       articleUrl: `${SITE_URL}/article/${pick.id}`,
     });

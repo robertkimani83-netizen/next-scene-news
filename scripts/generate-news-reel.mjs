@@ -178,7 +178,20 @@ async function main() {
   const frames = Math.round(totalSec * 30);
   const outputPath = path.join(runDir, "final_reel.mp4");
 
-  const filterComplex = [
+  // Oct 5 2026: when the "photo" is our own branded headline card
+  // (article.isCard), the normal layout zoomed the landscape card to fill a
+  // portrait frame and drew the headline again on top - unreadable stacked
+  // text. Cards instead sit full-width in the middle over a blurred copy of
+  // themselves, with no second headline (the card already carries it).
+  const filterComplex = article.isCard
+    ? [
+        `[0:v]split[src1][src2]`,
+        `[src1]scale=${DIMS.width}:${DIMS.height}:force_original_aspect_ratio=increase,crop=${DIMS.width}:${DIMS.height},boxblur=30:2,eq=brightness=-0.15,fps=30[bg]`,
+        `[src2]scale=${DIMS.width - 60}:-2[card]`,
+        `[bg][card]overlay=x=(W-w)/2:y=(H-h)/2[b2]`,
+        `[b2]drawtext=fontfile=${FONT_REGULAR}:textfile=${escapeFilterPath(noteFile)}:fontcolor=#F2C94C:fontsize=36:x=(w-text_w)/2:y=h-160[b3]`,
+      ].join(";")
+    : [
     // Slow Ken Burns zoom on the real photo, filling the portrait canvas —
     // same proven filter parameters used elsewhere in this repo
     // (scripts/lib/ffmpeg-build.mjs) for photo segments.
