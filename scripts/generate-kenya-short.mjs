@@ -105,10 +105,14 @@ async function saveHistory(history) {
 /** Parses trends24's hourly lists. Returns trends ranked by how many of the
  * recent hourly lists they appear in (staying power), then by best rank. */
 export function parseTrends(html, hoursToUse = 6) {
-  const blocks = html.split(/<div class="list-container">/).slice(1, hoursToUse + 1);
+  // trends24 serves slightly different markup to servers than to browsers
+  // (quoting/attribute order), so match loosely.
+  const LINK = String.raw`<a\b[^>]*class=["']?[^"'>]*\btrend-link\b[^>]*>([^<]+)<\/a>`;
+  let blocks = html.split(/<div[^>]*class=["']?[^"'>]*\blist-container\b[^>]*>/).slice(1, hoursToUse + 1);
+  if (!blocks.some((b) => new RegExp(LINK).test(b))) blocks = [html];
   const stats = new Map();
   blocks.forEach((block, hourIdx) => {
-    const names = [...block.matchAll(/class="trend-link"[^>]*>([^<]+)<\/a>/g)].map((m) => decodeEntities(m[1]).trim());
+    const names = [...block.matchAll(new RegExp(LINK, "g"))].map((m) => decodeEntities(m[1]).trim()).filter(Boolean);
     names.slice(0, 30).forEach((name, rankIdx) => {
       const s = stats.get(name) || { name, hours: 0, bestRank: 99, latest: false };
       s.hours += 1;
@@ -123,8 +127,13 @@ export function parseTrends(html, hoursToUse = 6) {
 async function getTrends() {
   const res = await fetch(TRENDS_URL, { headers: { "User-Agent": USER_AGENT } });
   if (!res.ok) throw new Error(`trends24 responded ${res.status}`);
-  const trends = parseTrends(await res.text());
-  if (!trends.length) throw new Error("could not read any trends from trends24 (page layout may have changed)");
+  const html = await res.text();
+  const trends = parseTrends(html);
+  if (!trends.length) {
+    const title = (html.match(/<title>([^<]*)<\/title>/i) || [])[1] || "?";
+    const sample = (html.match(/.{0,120}trend.{0,200}/i) || [""])[0];
+    throw new Error(`could not read any trends from trends24 (len ${html.length}, title "${title}", sample: ${sample})`);
+  }
   return trends;
 }
 
