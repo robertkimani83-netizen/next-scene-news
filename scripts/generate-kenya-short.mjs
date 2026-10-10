@@ -515,7 +515,15 @@ async function main() {
   const cardPath = await renderTrendCard(trends, script.trend, path.join(runDir, "card.png"), runDir);
 
   const { synthesizeNarration } = await import("./lib/tts.mjs");
-  const { audioPath, sentences } = await synthesizeNarration(script.narration.join(" "), runDir, VOICE);
+  const { forSpeech } = await import("./lib/pronounce.mjs");
+  const spoken = script.narration.map((line) => forSpeech(line, { voice: VOICE }));
+  const tts = await synthesizeNarration(spoken.join(" "), runDir, VOICE, { rate: "+4%" });
+  const audioPath = tts.audioPath;
+  // Captions show the original wording, not the pronunciation respellings.
+  const sentences =
+    tts.sentences.length === script.narration.length
+      ? tts.sentences.map((s, i) => ({ ...s, text: script.narration[i] }))
+      : tts.sentences;
   const speechEnd = (sentences.at(-1)?.startSec ?? 0) + (sentences.at(-1)?.durationSec ?? 0);
   const totalSec = Math.min(Math.max(speechEnd + 0.4, 20) + OUTRO_SEC, 59);
 

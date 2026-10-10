@@ -1,0 +1,62 @@
+name: Make Kenyan Voiceover
+
+# Oct 10 2026: turns a pasted narration script into an MP3 read by
+# Microsoft's Kenyan English voice (scripts/make-voiceover.mjs), with
+# sentence timings and an .srt for captions. Download the "voiceover"
+# artifact from the finished run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Narration text to read (plain sentences, no [markers])"
+        type: string
+        required: true
+      voice:
+        description: "Voice"
+        type: choice
+        options:
+          - en-KE-ChilembaNeural
+          - en-KE-AsiliaNeural
+        default: en-KE-ChilembaNeural
+      rate:
+        description: "Speed, e.g. +0%, +5%, -5%"
+        type: string
+        default: "+0%"
+
+permissions:
+  contents: read
+
+jobs:
+  voiceover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Make voiceover
+        env:
+          SCRIPT_TEXT: ${{ inputs.script }}
+          VOICE: ${{ inputs.voice }}
+          RATE: ${{ inputs.rate }}
+        run: node scripts/make-voiceover.mjs
+
+      - name: Upload voiceover
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiceover
+          path: |
+            tmp/voiceover/voiceover.mp3
+            tmp/voiceover/sentences.json
+            tmp/voiceover/voiceover.srt
+          retention-days: 14

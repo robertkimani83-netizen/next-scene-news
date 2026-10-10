@@ -24,14 +24,14 @@ const TICKS_PER_SECOND = 10_000_000; // msedge-tts timings are in 100ns "ticks"
 /** Runs one narration attempt: fresh MsEdgeTTS instance, synthesize, read
  * back the sentence-boundary metadata, normalize the output filename. Split
  * out so synthesizeNarration can retry a clean attempt from scratch. */
-async function synthesizeOnce(fullText, outDir, voice) {
+async function synthesizeOnce(fullText, outDir, voice, prosody) {
   const tts = new MsEdgeTTS();
   await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {
     wordBoundaryEnabled: false,
     sentenceBoundaryEnabled: true,
   });
 
-  const { audioFilePath, metadataFilePath } = await tts.toFile(outDir, fullText);
+  const { audioFilePath, metadataFilePath } = await tts.toFile(outDir, fullText, prosody);
 
   const metaRaw = await fs.readFile(metadataFilePath, "utf-8");
   const meta = JSON.parse(metaRaw);
@@ -106,16 +106,17 @@ function runWithUncaughtGuard(fn) {
  *   this pipeline uses — see generate-documentary.mjs).
  * @param {string} outDir - directory to write narration.mp3 into
  * @param {string} voice - e.g. "en-US-ChristopherNeural"
+ * @param {{rate?: string, pitch?: string}} [prosody] - optional, e.g. {rate: "+5%"}
  * @returns {Promise<{audioPath: string, sentences: Array<{text: string, startSec: number, durationSec: number}>}>}
  */
-export async function synthesizeNarration(fullText, outDir, voice = "en-US-ChristopherNeural") {
+export async function synthesizeNarration(fullText, outDir, voice = "en-US-ChristopherNeural", prosody = undefined) {
   await fs.mkdir(outDir, { recursive: true });
 
   const MAX_ATTEMPTS = 3;
   let lastErr;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await runWithUncaughtGuard(() => synthesizeOnce(fullText, outDir, voice));
+      return await runWithUncaughtGuard(() => synthesizeOnce(fullText, outDir, voice, prosody));
     } catch (err) {
       lastErr = err;
       console.warn(`[tts] attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}${attempt < MAX_ATTEMPTS ? ", retrying..." : ""}`);
