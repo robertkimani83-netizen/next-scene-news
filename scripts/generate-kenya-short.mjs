@@ -69,6 +69,7 @@ function escapeFilterPath(p) {
 
 function decodeEntities(s) {
   return s
+    .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'")
@@ -162,27 +163,82 @@ function extractJson(text) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-async function researchAndWrite(trends, recentTrends) {
+/** Recent Kenyan news coverage of one trend from Google News RSS (free, no
+ * key). Returns up to `max` items from the last 3 days. */
+export async function fetchNews(query, max = 4) {
+  const q = encodeURIComponent(`${query.replace(/^#/, "")} when:3d`);
+  const url = `https://news.google.com/rss/search?q=${q}&hl=en-KE&gl=KE&ceid=KE:en`;
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, max).map((m) => {
+      const item = m[1];
+      const get = (tag) => stripHtml(decodeEntities((item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`)) || [])[1] || "").replace(/<!\[CDATA\[|\]\]>/g, ""));
+      const source = get("source");
+      let title = get("title");
+      if (source && title.endsWith(` - ${source}`)) title = title.slice(0, -(source.length + 3));
+      return { title, source, date: get("pubDate"), snippet: get("description").slice(0, 300) };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function callGemini(prompt) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not set");
+  let lastErr;
+  for (let pass = 1; pass <= 3; pass++) {
+    for (const model of GEMINI_MODELS) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          },
+        );
+        if (!res.ok) throw new Error(`${model} responded ${res.status}`);
+        const data = await res.json();
+        const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+        return validateScript(extractJson(text));
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[script] ${model} failed (pass ${pass}/3): ${err.message}`);
+      }
+    }
+    if (pass < 3) await new Promise((r) => setTimeout(r, 8000 * pass));
+  }
+  throw new Error(`all Gemini models failed: ${lastErr?.message}`);
+}
 
-  const list = trends
-    .slice(0, 25)
-    .map((t, i) => `${i + 1}. ${t.name} (in ${t.hours} of the last 6 hourly lists, best rank #${t.bestRank})`)
+async function researchAndWrite(trends, recentTrends) {
+  const candidates = trends.slice(0, 15);
+  const coverage = await Promise.all(candidates.map((t) => fetchNews(`${t.name} Kenya`)));
+  const blocks = candidates
+    .map((t, i) => {
+      const news = coverage[i];
+      const lines = news.length
+        ? news.map((n) => `   - "${n.title}" (${n.source}, ${n.date}) ${n.snippet}`).join("\n")
+        : "   - (no news coverage found)";
+      return `${i + 1}. ${t.name} (in ${t.hours} of the last 6 hourly lists, best rank #${t.bestRank})\n${lines}`;
+    })
     .join("\n");
   const avoid = recentTrends.length ? recentTrends.join(", ") : "none";
 
   const prompt = `You make daily YouTube Shorts for NEXTSCENE TV, a Kenyan channel known for Kenya stories and KOT (Kenyans on X) culture.
 
-These are Kenya's trending topics on X right now:
-${list}
+These are Kenya's trending topics on X right now, each with the recent news headlines found for it:
+${blocks}
 
 Already covered recently (do NOT pick these or the same story): ${avoid}
 
-STEP 1: Pick ONE trend that is a real story Kenyans want explained: politics, public figures, viral moments, online wars, big national news, celebrities. Prefer trends that stayed in the lists for many hours.
-Do NOT pick: brand campaigns or promoted hashtags (e.g. company product hashtags), betting, church/prayer hashtags, routine football fixtures or match results, stories about private individuals, anything involving children, sexual content, or a person's death unless it is major national news.
+STEP 1: Pick ONE trend that is a real story Kenyans want explained AND has clear news coverage above: politics, public figures, viral moments, online wars, big national news, celebrities. Prefer trends that stayed in the lists for many hours.
+Do NOT pick: brand campaigns or promoted hashtags (company product hashtags), betting, church/prayer hashtags, routine football fixtures or match results, stories about private individuals, anything involving children, sexual content, or a person's death unless it is major national news. Do not pick a trend whose headlines are about something unrelated.
 
-STEP 2: Use Google Search to find out from news reports exactly why it is trending today. Use ONLY facts you found. If something is alleged or claimed, say who claims it. Never invent numbers, quotes or names.
+STEP 2: Use ONLY facts from the headlines and snippets for that trend. If something is alleged or claimed, say who claims it. Never invent numbers, quotes, names or details that are not in them. If the coverage is too thin to explain the story, choose another trend.
 
 STEP 3: Write the Short. Kenyan English, conversational, like telling a friend. Serious and respectful for deaths, crime, disasters or illness (no jokes). For light stories you may add one clever KOT-style line.
 
@@ -196,43 +252,20 @@ Reply with ONLY this JSON (no other text):
   "narration": ["6 to 9 short sentences, 85-120 words total. Sentence 1 is a hook. Mention it is trending in Kenya. Last sentence asks viewers a question to answer in the comments."],
   "description": "2-3 sentence YouTube description",
   "tags": ["8-12 search tags"],
-  "photo_queries": ["1-3 Wikimedia Commons searches for REAL photos of the main public figures, places or institutions, e.g. 'William Ruto', 'Parliament of Kenya'. Empty list if there are none."]
+  "photo_queries": ["1-3 Wikimedia Commons searches for REAL photos of the main public figures, places or institutions, e.g. 'William Ruto', 'Parliament of Kenya'. Empty list if there are none."],
+  "sources": ["names of the news outlets you used, from the list above"]
 }
 
 If none of the trends is suitable, reply with {"skip": true, "reason": "..."}.`;
 
-  let lastErr;
-  for (let pass = 1; pass <= 3; pass++) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              tools: [{ google_search: {} }],
-            }),
-          },
-        );
-        if (!res.ok) throw new Error(`${model} responded ${res.status}`);
-        const data = await res.json();
-        const cand = data.candidates?.[0];
-        const text = (cand?.content?.parts || []).map((p) => p.text || "").join("");
-        const script = validateScript(extractJson(text));
-        const chunks = cand?.groundingMetadata?.groundingChunks || [];
-        script.sources = [...new Set(chunks.map((c) => c.web?.title).filter(Boolean))].slice(0, 5);
-        if (!script.skip && !chunks.length) throw new Error("reply was not grounded in any search results");
-        return script;
-      } catch (err) {
-        lastErr = err;
-        console.warn(`[script] ${model} failed (pass ${pass}/3): ${err.message}`);
-      }
-    }
-    if (pass < 3) await new Promise((r) => setTimeout(r, 5000 * pass));
+  const script = await callGemini(prompt);
+  if (!script.skip) {
+    const idx = candidates.findIndex((t) => t.name.toLowerCase() === String(script.trend).toLowerCase());
+    if (idx < 0 || !coverage[idx].length) throw new Error(`Gemini picked "${script.trend}", which has no news coverage in the list`);
+    const outlets = coverage[idx].map((n) => n.source).filter(Boolean);
+    script.sources = [...new Set((Array.isArray(script.sources) ? script.sources : []).filter((s) => outlets.includes(s)).concat(outlets))].slice(0, 4);
   }
-  throw new Error(`all Gemini models failed: ${lastErr?.message}`);
+  return script;
 }
 
 // ---------- 3. real photos (Wikimedia Commons) ----------
