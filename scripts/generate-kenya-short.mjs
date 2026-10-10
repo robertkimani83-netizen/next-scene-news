@@ -6,9 +6,10 @@
 // Each run:
 //  1. Reads Kenya's live X trends from trends24.in (public page, no login,
 //     no paid X API).
-//  2. Gemini (with Google Search grounding) picks ONE trend that is a real
+//  2. Recent Kenyan headlines for the top trends come from Google News RSS;
+//     Gemini picks ONE trend that is a real
 //     story people want explained (not an ad, not a promo hashtag), finds
-//     out from news reports why it is trending, and writes a 35-50 second
+//     out from those headlines why it is trending, and writes a 35-50 second
 //     Kenyan-English script. Serious tone for serious news, light KOT
 //     humour only for light stories. Facts must come from its sources.
 //  3. Real photos of the people/places involved come from Wikimedia
@@ -486,7 +487,7 @@ async function main() {
   const history = await loadHistory();
   const recent = history.slice(-14).map((h) => h.trend);
 
-  console.log("[script] picking a trend and researching it (Gemini + Google Search)...");
+  console.log("[script] picking a trend and researching it (Google News + Gemini)...");
   const script = await researchAndWrite(trends, recent);
   if (script.skip) {
     console.log(`No suitable trend today: ${script.reason || "no reason given"}. Skipping.`);

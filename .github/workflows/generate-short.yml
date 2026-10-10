@@ -3,8 +3,8 @@ name: Generate NextScene TV Short
 on:
   # Oct 10 2026: switched from the old "money & power" Shorts (no views)
   # to a daily "Trending in Kenya" Short (scripts/generate-kenya-short.mjs):
-  # Kenya's live X trends from trends24.in, researched with Gemini + Google
-  # Search, real photos from Wikimedia Commons (never stock footage).
+  # Kenya's live X trends from trends24.in, researched from Google News headlines
+  # with Gemini, real photos from Wikimedia Commons (never stock footage).
   # Uploads land as PRIVATE so the owner reviews them in YouTube Studio.
   # 15:05 UTC = 18:05 Doha / 18:05 Nairobi.
   schedule:
