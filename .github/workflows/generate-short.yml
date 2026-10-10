@@ -1,27 +1,23 @@
 name: Generate NextScene TV Short
 
 on:
-  # Sept 30 2026 strategy reset: ONE Short a day (was 4x/day), uploaded as
-  # PRIVATE so it only goes live once approved in YouTube Studio.
+  # Oct 10 2026: switched from the old "money & power" Shorts (no views)
+  # to a daily Kenya story Short built from VOX254's top Kenya story with
+  # a REAL news photo (scripts/generate-kenya-short.mjs). No suitable
+  # story = no Short that day (never stock footage).
+  # Uploads land as PRIVATE so the owner reviews them in YouTube Studio.
   # 15:05 UTC = 18:05 Doha / 18:05 Nairobi.
   schedule:
     - cron: "5 15 * * *"
   workflow_dispatch:
     inputs:
       upload:
-        description: "Actually upload to YouTube? Leave unchecked to just generate a short and review it first."
+        description: "Actually upload to YouTube? Leave unchecked to just build the Short for review (artifact)."
         type: boolean
         default: false
-      format:
-        description: "Force a specific Shorts format? Leave as auto to use the normal random pick."
-        type: choice
-        options:
-          - auto
-          - normal
-        default: auto
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   generate-and-upload:
@@ -34,95 +30,37 @@ jobs:
         with:
           node-version: "20"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Install dependencies
         run: npm install
 
-      - name: Install thumbnail generator dependencies (Pillow + FLUX via Hugging Face)
-        run: pip install --disable-pip-version-check pillow requests huggingface_hub
-
-      - name: Generate short (review only - manual run without "upload" checked)
+      - name: Build Kenya Short (review only - manual run without "upload" checked)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
         env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
-          FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          FORCE_SHORT_FORMAT: ${{ github.event.inputs.format }}
-        run: npm run test-short-no-upload
+        run: npm run test-kenya-short-no-upload
 
-      - name: Generate and upload short (scheduled runs, or manual run with "upload" checked)
+      - name: Build and upload Kenya Short (scheduled runs, or manual run with "upload" checked)
         if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
         env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
-          FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          FORCE_SHORT_FORMAT: ${{ github.event.inputs.format }}
-          # Every upload lands as private for review. Make it public in
-          # YouTube Studio once you're happy with it.
           YOUTUBE_PRIVACY: private
-        run: npm run generate-short
+        run: npm run generate-kenya-short
 
-      - name: Save topic history
-        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state/topic-history-short.json
-          # topic-history-short-guess.json (the "Guess the Country" series'
-          # own history — see SHORT_GUESS_POOL in generate-short.mjs) only
-          # exists once a guess-format run has happened at least once
-          # (~1-in-4 runs pick that format) — `git add` on a path that
-          # doesn't exist yet would fail the step outright, so only add it
-          # once it's actually there.
-          if [ -f state/topic-history-short-guess.json ]; then
-            git add state/topic-history-short-guess.json
-          fi
-          # Same idea for the "Map Challenge" series' own history file (see
-          # MAP_CHALLENGE_POOL in generate-short.mjs) — only exists once a
-          # map-format run has happened at least once (~1-in-5 runs).
-          if [ -f state/topic-history-short-map.json ]; then
-            git add state/topic-history-short-map.json
-          fi
-          # priority-queue-short.json (pickWithPriority in
-          # lib/topic-history.mjs) — committed here too, since a queued
-          # "post this next" pick gets cleared back to null the moment a run
-          # consumes it. Without this commit that consumption never
-          # persists and the same queued pick would just get reused forever
-          # on every subsequent run.
-          if [ -f state/priority-queue-short.json ]; then
-            git add state/priority-queue-short.json
-          fi
-          if ! git diff --cached --quiet; then
-            git commit -m "Update Shorts topic history [skip ci]"
-            git pull --rebase origin main
-            git push
-          else
-            echo "No topic history changes to commit"
-          fi
-
-      - name: Upload short + thumbnail as artifacts for review (kept 7 days)
+      - name: Upload the Short as an artifact for review (kept 7 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: short-output
-          path: |
-            tmp/*/final_short.mp4
-            tmp/*/thumbnail.jpg
+          name: kenya-short-output
+          path: tmp/*/final_short.mp4
+          if-no-files-found: ignore
           retention-days: 7
