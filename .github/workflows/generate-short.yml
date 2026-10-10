@@ -2,9 +2,9 @@ name: Generate NextScene TV Short
 
 on:
   # Oct 10 2026: switched from the old "money & power" Shorts (no views)
-  # to a daily Kenya story Short built from VOX254's top Kenya story with
-  # a REAL news photo (scripts/generate-kenya-short.mjs). No suitable
-  # story = no Short that day (never stock footage).
+  # to a daily "Trending in Kenya" Short (scripts/generate-kenya-short.mjs):
+  # Kenya's live X trends from trends24.in, researched with Gemini + Google
+  # Search, real photos from Wikimedia Commons (never stock footage).
   # Uploads land as PRIVATE so the owner reviews them in YouTube Studio.
   # 15:05 UTC = 18:05 Doha / 18:05 Nairobi.
   schedule:
@@ -17,7 +17,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate-and-upload:
@@ -39,22 +39,32 @@ jobs:
       - name: Build Kenya Short (review only - manual run without "upload" checked)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.upload != 'true'
         env:
-          SITE_URL: ${{ secrets.SITE_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: npm run test-kenya-short-no-upload
 
       - name: Build and upload Kenya Short (scheduled runs, or manual run with "upload" checked)
         if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
         env:
-          SITE_URL: ${{ secrets.SITE_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           YOUTUBE_PRIVACY: private
         run: npm run generate-kenya-short
+
+      - name: Save trend history (so the same trend isn't covered twice)
+        if: github.event_name == 'schedule' || github.event.inputs.upload == 'true'
+        run: |
+          if [ -f state/kenya-short-history.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state/kenya-short-history.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Update Kenya Shorts trend history [skip ci]"
+              git pull --rebase origin main
+              git push
+            fi
+          fi
 
       - name: Upload the Short as an artifact for review (kept 7 days)
         if: always()

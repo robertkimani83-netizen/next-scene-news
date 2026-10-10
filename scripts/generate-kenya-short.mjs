@@ -1,22 +1,25 @@
-// NEXTSCENE TV daily "Kenya story" Short (Oct 10 2026).
+// NEXTSCENE TV daily "Trending in Kenya" Short (Oct 10 2026).
 //
 // Replaces the old "money & power" Shorts (scripts/generate-short.mjs),
 // which got no views once the channel moved to Kenya / KOT stories.
 //
 // Each run:
-//  1. Asks the VOX254 site for today's top unused Kenya story that has a
-//     REAL news photo (app/api/social/next-yt-short-article). No story =
-//     no Short that day. It never falls back to stock footage.
-//  2. Has Gemini write a 35-50 second Kenyan-English narration that sticks
-//     to the facts in the article (serious tone for serious news, light
-//     KOT humour only for light stories), plus title, description and tags.
-//  3. Narrates it with a Kenyan English voice, builds a 1080x1920 video
-//     from the real photo with a hook line and timed captions.
-//  4. Uploads it to YouTube (privacy from YOUTUBE_PRIVACY, private by
-//     default so the owner reviews it first).
+//  1. Reads Kenya's live X trends from trends24.in (public page, no login,
+//     no paid X API).
+//  2. Gemini (with Google Search grounding) picks ONE trend that is a real
+//     story people want explained (not an ad, not a promo hashtag), finds
+//     out from news reports why it is trending, and writes a 35-50 second
+//     Kenyan-English script. Serious tone for serious news, light KOT
+//     humour only for light stories. Facts must come from its sources.
+//  3. Real photos of the people/places involved come from Wikimedia
+//     Commons (free licences, credited on screen). Never stock footage.
+//     If no photo fits, the Short uses the trends card only.
+//  4. Narrates with a Kenyan English voice, builds a 1080x1920 video and
+//     uploads it to YouTube (YOUTUBE_PRIVACY, private by default so the
+//     owner reviews it first).
 //
-// Env: SITE_URL, CRON_SECRET, GEMINI_API_KEY, GOOGLE_CLIENT_ID,
-//      GOOGLE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN, YOUTUBE_PRIVACY.
+// Env: GEMINI_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+//      YOUTUBE_REFRESH_TOKEN, YOUTUBE_PRIVACY.
 //
 //   node scripts/generate-kenya-short.mjs --no-upload
 
@@ -36,10 +39,14 @@ const FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const VOICE = "en-KE-ChilembaNeural";
 const GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.5-flash-lite"];
+const TRENDS_URL = "https://trends24.in/kenya/";
+const HISTORY_PATH = path.join(__dirname, "..", "state", "kenya-short-history.json");
+const USER_AGENT = "NEXTSCENE-TV-shorts/1.0 (https://github.com/robertkimani83-netizen/next-scene-news)";
 const OUTRO_TEXT = "Follow NEXTSCENE TV for more Kenya stories";
 const OUTRO_SEC = 2.2;
+const CARD_SEC = 4;
 
-// ---------- helpers ----------
+// ---------- small helpers ----------
 
 export function wrapText(text, maxChars) {
   const words = String(text).split(/\s+/).filter(Boolean);
@@ -60,6 +67,16 @@ function escapeFilterPath(p) {
   return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
+function decodeEntities(s) {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
+}
+
 async function ffmpeg(args) {
   try {
     return await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...args], {
@@ -70,82 +87,112 @@ async function ffmpeg(args) {
   }
 }
 
-async function getArticle() {
-  const res = await fetch(`${process.env.SITE_URL}/api/social/next-yt-short-article`, {
-    headers: { Authorization: `Bearer ${(process.env.CRON_SECRET || "").trim()}` },
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`next-yt-short-article responded ${res.status}: ${await res.text()}`);
-  return res.json();
-}
-
-async function downloadTo(url, dest) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to download ${url}: ${res.status}`);
-  await fs.writeFile(dest, Buffer.from(await res.arrayBuffer()));
-  return dest;
-}
-
-// ---------- script writing ----------
-
-function fallbackScript(article) {
-  const sentences = `${article.title}. ${article.teaser} ${article.article || ""}`
-    .replace(/\s+/g, " ")
-    .match(/[^.!?]+[.!?]+/g) || [article.title];
-  const narration = [];
-  let words = 0;
-  for (const s of sentences) {
-    const t = s.trim();
-    if (!t || narration.includes(t)) continue;
-    narration.push(t);
-    words += t.split(/\s+/).length;
-    if (words >= 95) break;
+async function loadHistory() {
+  try {
+    return JSON.parse(await fs.readFile(HISTORY_PATH, "utf-8"));
+  } catch {
+    return [];
   }
-  return {
-    title: article.title.slice(0, 88),
-    hook: article.title.split(/\s+/).slice(0, 6).join(" ").toUpperCase(),
-    narration,
-    description: article.teaser,
-    tags: ["kenya", "kenya news", "kenyans on x", "kot", "nairobi"],
-  };
 }
+
+async function saveHistory(history) {
+  await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true });
+  await fs.writeFile(HISTORY_PATH, JSON.stringify(history.slice(-40), null, 2) + "\n");
+}
+
+// ---------- 1. trends ----------
+
+/** Parses trends24's hourly lists. Returns trends ranked by how many of the
+ * recent hourly lists they appear in (staying power), then by best rank. */
+export function parseTrends(html, hoursToUse = 6) {
+  const blocks = html.split(/<div class="list-container">/).slice(1, hoursToUse + 1);
+  const stats = new Map();
+  blocks.forEach((block, hourIdx) => {
+    const names = [...block.matchAll(/class="trend-link"[^>]*>([^<]+)<\/a>/g)].map((m) => decodeEntities(m[1]).trim());
+    names.slice(0, 30).forEach((name, rankIdx) => {
+      const s = stats.get(name) || { name, hours: 0, bestRank: 99, latest: false };
+      s.hours += 1;
+      s.bestRank = Math.min(s.bestRank, rankIdx + 1);
+      if (hourIdx === 0) s.latest = true;
+      stats.set(name, s);
+    });
+  });
+  return [...stats.values()].sort((a, b) => b.hours - a.hours || a.bestRank - b.bestRank);
+}
+
+async function getTrends() {
+  const res = await fetch(TRENDS_URL, { headers: { "User-Agent": USER_AGENT } });
+  if (!res.ok) throw new Error(`trends24 responded ${res.status}`);
+  const trends = parseTrends(await res.text());
+  if (!trends.length) throw new Error("could not read any trends from trends24 (page layout may have changed)");
+  return trends;
+}
+
+// ---------- 2. research + script ----------
 
 export function validateScript(s) {
   if (!s || typeof s !== "object") throw new Error("not an object");
-  if (typeof s.title !== "string" || s.title.length < 10) throw new Error("bad title");
-  if (typeof s.hook !== "string" || !s.hook.trim()) throw new Error("bad hook");
+  if (s.skip) return s;
+  for (const k of ["trend", "title", "hook"]) {
+    if (typeof s[k] !== "string" || !s[k].trim()) throw new Error(`missing ${k}`);
+  }
   if (!Array.isArray(s.narration) || s.narration.length < 4) throw new Error("narration too short");
   const words = s.narration.join(" ").split(/\s+/).length;
   if (words < 60 || words > 150) throw new Error(`narration has ${words} words`);
-  if (typeof s.description !== "string") s.description = "";
+  if (!Array.isArray(s.photo_queries)) s.photo_queries = [];
   if (!Array.isArray(s.tags)) s.tags = [];
+  if (typeof s.description !== "string") s.description = "";
   return s;
 }
 
-async function writeScript(article) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return fallbackScript(article);
-
-  const prompt = `You write YouTube Shorts for NEXTSCENE TV, a Kenyan channel known for Kenya stories and KOT (Kenyans on X) culture.
-
-Write a Short about this news story. Use ONLY facts in the story below. Do not add numbers, names, quotes or claims that are not in it. If something is alleged or claimed, say who claims it.
-
-TONE: Kenyan English, conversational, like telling a friend. If the story involves death, injury, crime, disaster, illness or grief, keep it serious and respectful with no jokes. Only if the story is light (politics drama, celebrities, online wars, viral moments) you may add one light, clever KOT-style line.
-
-Return ONLY JSON:
-{
-  "title": "YouTube title, max 85 characters, curiosity hook, one emoji at most, no hashtags",
-  "hook": "on-screen hook, 3-6 words, ALL CAPS",
-  "narration": ["6 to 9 short sentences, 85-120 words total. Sentence 1 is a hook that makes people stay. Last sentence asks viewers a question to answer in the comments."],
-  "description": "2-3 sentence YouTube description",
-  "tags": ["8-12 search tags"]
+function extractJson(text) {
+  const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end < start) throw new Error("no JSON object in reply");
+  return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-STORY HEADLINE: ${article.title}
-TEASER: ${article.teaser}
-FULL STORY:
-${(article.article || "").slice(0, 6000)}`;
+async function researchAndWrite(trends, recentTrends) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY is not set");
 
+  const list = trends
+    .slice(0, 25)
+    .map((t, i) => `${i + 1}. ${t.name} (in ${t.hours} of the last 6 hourly lists, best rank #${t.bestRank})`)
+    .join("\n");
+  const avoid = recentTrends.length ? recentTrends.join(", ") : "none";
+
+  const prompt = `You make daily YouTube Shorts for NEXTSCENE TV, a Kenyan channel known for Kenya stories and KOT (Kenyans on X) culture.
+
+These are Kenya's trending topics on X right now:
+${list}
+
+Already covered recently (do NOT pick these or the same story): ${avoid}
+
+STEP 1: Pick ONE trend that is a real story Kenyans want explained: politics, public figures, viral moments, online wars, big national news, celebrities. Prefer trends that stayed in the lists for many hours.
+Do NOT pick: brand campaigns or promoted hashtags (e.g. company product hashtags), betting, church/prayer hashtags, routine football fixtures or match results, stories about private individuals, anything involving children, sexual content, or a person's death unless it is major national news.
+
+STEP 2: Use Google Search to find out from news reports exactly why it is trending today. Use ONLY facts you found. If something is alleged or claimed, say who claims it. Never invent numbers, quotes or names.
+
+STEP 3: Write the Short. Kenyan English, conversational, like telling a friend. Serious and respectful for deaths, crime, disasters or illness (no jokes). For light stories you may add one clever KOT-style line.
+
+Reply with ONLY this JSON (no other text):
+{
+  "trend": "the trend name exactly as listed",
+  "why": "one sentence: why it is trending",
+  "tone": "serious" or "light",
+  "title": "YouTube title, max 85 characters, curiosity hook, the trend name or main person in it, max one emoji, no hashtags",
+  "hook": "on-screen hook, 3-6 words, ALL CAPS",
+  "narration": ["6 to 9 short sentences, 85-120 words total. Sentence 1 is a hook. Mention it is trending in Kenya. Last sentence asks viewers a question to answer in the comments."],
+  "description": "2-3 sentence YouTube description",
+  "tags": ["8-12 search tags"],
+  "photo_queries": ["1-3 Wikimedia Commons searches for REAL photos of the main public figures, places or institutions, e.g. 'William Ruto', 'Parliament of Kenya'. Empty list if there are none."]
+}
+
+If none of the trends is suitable, reply with {"skip": true, "reason": "..."}.`;
+
+  let lastErr;
   for (let pass = 1; pass <= 3; pass++) {
     for (const model of GEMINI_MODELS) {
       try {
@@ -154,69 +201,193 @@ ${(article.article || "").slice(0, 6000)}`;
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              tools: [{ google_search: {} }],
+            }),
           },
         );
         if (!res.ok) throw new Error(`${model} responded ${res.status}`);
         const data = await res.json();
-        const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? "")
-          .trim()
-          .replace(/^```json\s*/i, "")
-          .replace(/^```\s*/i, "")
-          .replace(/```\s*$/i, "");
-        return validateScript(JSON.parse(raw));
+        const cand = data.candidates?.[0];
+        const text = (cand?.content?.parts || []).map((p) => p.text || "").join("");
+        const script = validateScript(extractJson(text));
+        const chunks = cand?.groundingMetadata?.groundingChunks || [];
+        script.sources = [...new Set(chunks.map((c) => c.web?.title).filter(Boolean))].slice(0, 5);
+        if (!script.skip && !chunks.length) throw new Error("reply was not grounded in any search results");
+        return script;
       } catch (err) {
+        lastErr = err;
         console.warn(`[script] ${model} failed (pass ${pass}/3): ${err.message}`);
       }
     }
     if (pass < 3) await new Promise((r) => setTimeout(r, 5000 * pass));
   }
-  console.warn("[script] all Gemini models failed, using the article text directly");
-  return fallbackScript(article);
+  throw new Error(`all Gemini models failed: ${lastErr?.message}`);
 }
 
-// ---------- video ----------
+// ---------- 3. real photos (Wikimedia Commons) ----------
+
+function stripHtml(s) {
+  return decodeEntities(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+async function findCommonsPhoto(query) {
+  const url =
+    "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6" +
+    `&gsrlimit=10&gsrsearch=${encodeURIComponent(`filetype:bitmap ${query}`)}` +
+    "&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1600";
+  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const pages = Object.values(data.query?.pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+  const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  for (const p of pages) {
+    const ii = p.imageinfo?.[0];
+    if (!ii || ii.mime !== "image/jpeg" || (ii.width || 0) < 800) continue;
+    const title = (p.title || "").toLowerCase();
+    if (/logo|map|flag|coat of arms|seal|diagram|chart|signature/.test(title)) continue;
+    if (!words.some((w) => title.includes(w))) continue;
+    const meta = ii.extmetadata || {};
+    const artist = stripHtml(meta.Artist?.value) || "Unknown";
+    const licence = stripHtml(meta.LicenseShortName?.value) || "see Commons";
+    return {
+      url: ii.thumburl || ii.url,
+      credit: `${artist} / Wikimedia Commons (${licence})`.slice(0, 90),
+      page: ii.descriptionurl,
+    };
+  }
+  return null;
+}
+
+async function download(url, dest) {
+  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+  if (!res.ok) throw new Error(`download ${res.status}`);
+  await fs.writeFile(dest, Buffer.from(await res.arrayBuffer()));
+  return dest;
+}
+
+// ---------- 4. video ----------
+
+/** Renders the opening "TRENDING IN KENYA" card listing the top trends with
+ * the chosen one highlighted. Real data, not a stock visual. */
+export async function renderTrendCard(trends, chosen, outPath, workDir) {
+  const top = trends.slice(0, 6).map((t) => t.name);
+  if (!top.includes(chosen)) top[5] = chosen;
+  const filters = [
+    `drawbox=x=0:y=0:w=${W}:h=${H}:color=0x0B0F14:t=fill`,
+    `drawbox=x=0:y=0:w=${W}:h=14:color=0xBB0000:t=fill`,
+    `drawbox=x=0:y=${H - 14}:w=${W}:h=14:color=0x006600:t=fill`,
+  ];
+  const tf = async (name, text) => {
+    const p = path.join(workDir, name);
+    await fs.writeFile(p, text, "utf-8");
+    return escapeFilterPath(p);
+  };
+  filters.push(`drawtext=fontfile=${FONT_BOLD}:textfile='${await tf("card_t1.txt", "TRENDING IN KENYA")}':fontcolor=white:fontsize=78:x=(w-text_w)/2:y=330`);
+  filters.push(`drawtext=fontfile=${FONT_REGULAR}:textfile='${await tf("card_t2.txt", "on X right now")}':fontcolor=0xBBBBBB:fontsize=44:x=(w-text_w)/2:y=430`);
+  let y = 560;
+  for (let i = 0; i < top.length; i++) {
+    const isChosen = top[i] === chosen;
+    if (isChosen) filters.push(`drawbox=x=70:y=${y - 22}:w=${W - 140}:h=112:color=0xFFD400:t=fill`);
+    const label = top[i].length > 19 ? `${top[i].slice(0, 18)}…` : top[i];
+    const f = await tf(`card_r${i}.txt`, `${i + 1}.  ${label}`);
+    filters.push(
+      `drawtext=fontfile=${FONT_BOLD}:textfile='${f}':fontcolor=${isChosen ? "black" : "white"}:fontsize=58:x=110:y=${y}`,
+    );
+    y += 135;
+  }
+  await ffmpeg([
+    "-f", "lavfi", "-i", `color=c=black:s=${W}x${H}:d=1`,
+    "-vf", filters.join(","),
+    "-frames:v", "1",
+    outPath,
+  ]);
+  return outPath;
+}
+
+/** One visual segment: blurred background + fitted photo with a slow push-in. */
+async function renderPhotoSegment(imgPath, dur, outPath, isCard) {
+  const d = dur.toFixed(2);
+  const vf = isCard
+    ? `scale=${W}:${H},setsar=1,fps=30`
+    : [
+        `split[a][b]`,
+        `[a]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=28:2,eq=brightness=-0.22,setsar=1[bg]`,
+        `[b]scale=1040:860:force_original_aspect_ratio=decrease,setsar=1[fg0]`,
+        `[fg0]scale=w='trunc(iw*(1+0.06*t/${d})/2)*2':h=-2:eval=frame[fg]`,
+        `[bg][fg]overlay=x=(W-w)/2:y=530+(860-h)/2,fps=30`,
+      ].join(";");
+  await ffmpeg([
+    "-loop", "1", "-framerate", "30", "-t", d, "-i", imgPath,
+    ...(isCard ? ["-vf", vf] : ["-filter_complex", vf]),
+    "-t", d, "-an",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    outPath,
+  ]);
+  return outPath;
+}
+
+/** Splits the timeline: the trends card first, then the photos evenly. */
+export function planVisuals(totalSec, photoCount) {
+  if (!photoCount) return [{ kind: "card", dur: totalSec }];
+  const card = Math.min(CARD_SEC, totalSec / 3);
+  const each = (totalSec - card) / photoCount;
+  return [{ kind: "card", dur: card }, ...Array.from({ length: photoCount }, (_, i) => ({ kind: "photo", index: i, dur: each }))];
+}
 
 /**
- * Builds the vertical video.
- * @param {{photoPath:string, audioPath:string, hook:string, captions:{text:string,start:number,end:number}[], credit:string, totalSec:number, outPath:string, workDir:string}} o
+ * @param {{cardPath:string, photos:{path:string,credit:string}[], audioPath:string, hook:string,
+ *   captions:{text:string,start:number,end:number}[], totalSec:number, outPath:string, workDir:string}} o
  */
 export async function buildVideo(o) {
-  const files = [];
+  const plan = planVisuals(o.totalSec, o.photos.length);
+  const segs = [];
+  const creditWindows = [];
+  let t = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const p = plan[i];
+    const seg = path.join(o.workDir, `seg${i}.mp4`);
+    if (p.kind === "card") await renderPhotoSegment(o.cardPath, p.dur, seg, true);
+    else {
+      await renderPhotoSegment(o.photos[p.index].path, p.dur, seg, false);
+      creditWindows.push({ credit: o.photos[p.index].credit, start: t, end: t + p.dur });
+    }
+    segs.push(seg);
+    t += p.dur;
+  }
+  const listPath = path.join(o.workDir, "segs.txt");
+  await fs.writeFile(listPath, segs.map((s) => `file '${s}'`).join("\n"));
+  const track = path.join(o.workDir, "track.mp4");
+  await ffmpeg(["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", track]);
+
   const tf = async (name, text) => {
     const p = path.join(o.workDir, name);
     await fs.writeFile(p, text, "utf-8");
-    files.push(p);
     return escapeFilterPath(p);
   };
-
-  const hookFile = await tf("hook.txt", wrapText(o.hook.toUpperCase(), 16));
-  const brandFile = await tf("brand.txt", "NEXTSCENE TV");
-  const creditFile = await tf("credit.txt", o.credit ? `Photo: ${o.credit}`.slice(0, 70) : "");
-  const outroFile = await tf("outro.txt", wrapText(OUTRO_TEXT, 22));
-
-  const dur = o.totalSec.toFixed(2);
+  const cardEnd = plan[0].kind === "card" && o.photos.length ? plan[0].dur : 0;
   const chain = [
-    `[0:v]split[a][b]`,
-    // Blurred, darkened full-screen background from the same photo.
-    `[a]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=28:2,eq=brightness=-0.22,setsar=1[bg]`,
-    // The real photo itself, fitted into the middle with a slow push-in.
-    `[b]scale=1040:860:force_original_aspect_ratio=decrease,setsar=1[fg0]`,
-    `[fg0]scale=w='trunc(iw*(1+0.06*t/${dur})/2)*2':h=-2:eval=frame[fg]`,
-    `[bg][fg]overlay=x=(W-w)/2:y=530+(860-h)/2:shortest=0[v0]`,
-    `[v0]drawbox=x=0:y=150:w=${W}:h=330:color=black@0.6:t=fill[v2]`,
-    `[v2]drawtext=fontfile=${FONT_BOLD}:textfile='${hookFile}':fontcolor=#FFD400:fontsize=84:line_spacing=12:x=(w-text_w)/2:y=190:borderw=4:bordercolor=black[v3]`,
-    `[v3]drawtext=fontfile=${FONT_BOLD}:textfile='${brandFile}':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=80:borderw=3:bordercolor=black[v4]`,
-    `[v4]drawtext=fontfile=${FONT_REGULAR}:textfile='${creditFile}':fontcolor=white@0.85:fontsize=26:x=(w-text_w)/2:y=h-70:borderw=2:bordercolor=black[v5]`,
+    // Hook + brand only over the photo part (the card has its own title).
+    `[0:v]drawbox=x=0:y=150:w=${W}:h=330:color=black@0.6:t=fill:enable='gte(t,${cardEnd.toFixed(2)})'[v1]`,
+    `[v1]drawtext=fontfile=${FONT_BOLD}:textfile='${await tf("hook.txt", wrapText(o.hook.toUpperCase(), 16))}':fontcolor=#FFD400:fontsize=84:line_spacing=12:x=(w-text_w)/2:y=190:borderw=4:bordercolor=black:enable='gte(t,${cardEnd.toFixed(2)})'[v2]`,
+    `[v2]drawtext=fontfile=${FONT_BOLD}:textfile='${await tf("brand.txt", "NEXTSCENE TV")}':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=80:borderw=3:bordercolor=black[v3]`,
   ];
-
-  let last = "v5";
+  let last = "v3";
   let n = 0;
+  for (const c of creditWindows) {
+    const next = `cr${n}`;
+    chain.push(
+      `[${last}]drawtext=fontfile=${FONT_REGULAR}:textfile='${await tf(`credit${n}.txt`, `Photo: ${c.credit}`)}':fontcolor=white@0.85:fontsize=24:x=(w-text_w)/2:y=h-70:borderw=2:bordercolor=black:enable='between(t,${c.start.toFixed(2)},${c.end.toFixed(2)})'[${next}]`,
+    );
+    last = next;
+    n++;
+  }
+  n = 0;
   for (const c of o.captions) {
-    const f = await tf(`cap${n}.txt`, wrapText(c.text, 24));
     const next = `c${n}`;
     chain.push(
-      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile='${f}':fontcolor=white:fontsize=58:line_spacing=10:` +
+      `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile='${await tf(`cap${n}.txt`, wrapText(c.text, 24))}':fontcolor=white:fontsize=58:line_spacing=10:` +
         `x=(w-text_w)/2:y=1450:box=1:boxcolor=black@0.55:boxborderw=22:borderw=3:bordercolor=black:` +
         `enable='between(t,${c.start.toFixed(2)},${c.end.toFixed(2)})'[${next}]`,
     );
@@ -225,17 +396,16 @@ export async function buildVideo(o) {
   }
   const outroStart = (o.totalSec - OUTRO_SEC).toFixed(2);
   chain.push(
-    `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile='${outroFile}':fontcolor=#FFD400:fontsize=62:line_spacing=10:` +
+    `[${last}]drawtext=fontfile=${FONT_BOLD}:textfile='${await tf("outro.txt", wrapText(OUTRO_TEXT, 22))}':fontcolor=#FFD400:fontsize=62:line_spacing=10:` +
       `x=(w-text_w)/2:y=1450:box=1:boxcolor=black@0.7:boxborderw=24:enable='gte(t,${outroStart})'[vout]`,
   );
 
   await ffmpeg([
-    "-loop", "1", "-framerate", "30", "-i", o.photoPath,
+    "-i", track,
     "-i", o.audioPath,
     "-filter_complex", chain.join(";"),
     "-map", "[vout]", "-map", "1:a",
-    "-t", dur,
-    "-r", "30",
+    "-t", o.totalSec.toFixed(2),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p",
     "-c:a", "aac", "-b:a", "128k", "-af", "apad",
     o.outPath,
@@ -244,7 +414,7 @@ export async function buildVideo(o) {
 }
 
 /** Turns narration sentence timings into caption windows, splitting long
- * sentences into two halves so each caption stays short on screen. */
+ * sentences in two so each caption stays short on screen. */
 export function captionsFromSentences(sentences) {
   const caps = [];
   for (const s of sentences) {
@@ -267,32 +437,52 @@ async function main() {
   const runDir = path.join(__dirname, "..", "tmp", `kenyashort_${Date.now()}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  console.log("[article] asking VOX254 for today's top Kenya story with a real photo...");
-  const article = await getArticle();
-  if (!article) {
-    console.log("No suitable Kenya story with a real photo today. Skipping (no stock fallback).");
+  console.log("[trends] reading Kenya's X trends from trends24...");
+  const trends = await getTrends();
+  console.log(`[trends] top: ${trends.slice(0, 8).map((t) => t.name).join(" | ")}`);
+
+  const history = await loadHistory();
+  const recent = history.slice(-14).map((h) => h.trend);
+
+  console.log("[script] picking a trend and researching it (Gemini + Google Search)...");
+  const script = await researchAndWrite(trends, recent);
+  if (script.skip) {
+    console.log(`No suitable trend today: ${script.reason || "no reason given"}. Skipping.`);
     return;
   }
-  console.log(`[article] "${article.title}" (${article.importance}, ${article.sourceName})`);
-
-  const photoPath = await downloadTo(article.imageUrl, path.join(runDir, "photo.jpg"));
-
-  const script = await writeScript(article);
+  console.log(`[script] trend: ${script.trend} | why: ${script.why}`);
   console.log(`[script] title: ${script.title}`);
+  console.log(`[script] sources: ${script.sources.join(", ")}`);
+
+  const photos = [];
+  for (const q of script.photo_queries.slice(0, 3)) {
+    try {
+      const hit = await findCommonsPhoto(q);
+      if (!hit || photos.some((p) => p.url === hit.url)) continue;
+      const file = path.join(runDir, `photo${photos.length}.jpg`);
+      await download(hit.url, file);
+      photos.push({ ...hit, path: file, query: q });
+      console.log(`[photo] "${q}" -> ${hit.page}`);
+    } catch (err) {
+      console.warn(`[photo] "${q}" failed: ${err.message}`);
+    }
+  }
+  if (!photos.length) console.log("[photo] no matching real photo found; using the trends card only");
+
+  const cardPath = await renderTrendCard(trends, script.trend, path.join(runDir, "card.png"), runDir);
 
   const { synthesizeNarration } = await import("./lib/tts.mjs");
-  const text = script.narration.join(" ");
-  const { audioPath, sentences } = await synthesizeNarration(text, runDir, VOICE);
+  const { audioPath, sentences } = await synthesizeNarration(script.narration.join(" "), runDir, VOICE);
   const speechEnd = (sentences.at(-1)?.startSec ?? 0) + (sentences.at(-1)?.durationSec ?? 0);
   const totalSec = Math.min(Math.max(speechEnd + 0.4, 20) + OUTRO_SEC, 59);
 
   const outPath = path.join(runDir, "final_short.mp4");
   await buildVideo({
-    photoPath,
+    cardPath,
+    photos,
     audioPath,
     hook: script.hook,
     captions: captionsFromSentences(sentences),
-    credit: article.photoCredit || "",
     totalSec,
     outPath,
     workDir: runDir,
@@ -309,22 +499,26 @@ async function main() {
   const description = [
     script.description,
     "",
-    `Full story: ${article.articleUrl}`,
-    article.photoCredit ? `Photo: ${article.photoCredit}` : "",
+    `Trending in Kenya on X: ${script.trend}`,
+    script.sources.length ? `Sources: ${script.sources.join(", ")}` : "",
+    ...photos.map((p) => `Photo: ${p.credit} ${p.page}`),
     "",
     "Follow NEXTSCENE TV for more Kenya stories 🇰🇪",
     "",
-    "#Kenya #KenyaNews #KOT #Shorts",
+    "#Kenya #KenyaNews #KOT #Trending #Shorts",
   ]
     .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
     .join("\n");
-  const tags = [...new Set([...(script.tags || []), "kenya", "kenya news", "kot", "nextscene tv"])].slice(0, 15);
+  const tags = [...new Set([...(script.tags || []), script.trend.replace(/^#/, ""), "kenya", "kot", "trending kenya", "nextscene tv"])].slice(0, 15);
 
   const result = await uploadToYouTube(outPath, title, description, { tags, categoryId: "25" });
   console.log(`[upload] uploaded: https://youtu.be/${result.id} (${result.status?.privacyStatus})`);
 
+  history.push({ date: new Date().toISOString().slice(0, 10), trend: script.trend, videoId: result.id });
+  await saveHistory(history);
+
   try {
-    const pl = await getOrCreatePlaylist("Kenya Stories — NEXTSCENE TV", "Daily Kenya stories in under a minute.");
+    const pl = await getOrCreatePlaylist("Trending in Kenya — NEXTSCENE TV", "What Kenya is talking about on X, explained in under a minute.");
     await addVideoToPlaylist(pl, result.id);
   } catch (err) {
     console.warn(`[playlist] skipped: ${err.message}`);
