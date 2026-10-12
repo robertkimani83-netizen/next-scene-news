@@ -44,6 +44,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Patch Edge version token (Oct 12 2026 403 fix)
+        run: |
+          f=node_modules/msedge-tts/dist/MsEdgeTTS.js
+          sed -i 's/1-143\.0\.3650\.96/1-155.0.4283.45/g; s/Chrome\/143\.0\.0\.0/Chrome\/155.0.0.0/g; s/Edg\/143\.0\.0\.0/Edg\/155.0.0.0/g' "$f"
+          grep -o 'Sec-MS-GEC-Version=[^&]*' "$f"
+
       - name: Make voiceover
         env:
           SCRIPT_TEXT: ${{ inputs.script }}
