@@ -25,7 +25,7 @@ on:
         default: "+0%"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   voiceover:
@@ -49,7 +49,15 @@ jobs:
           SCRIPT_TEXT: ${{ inputs.script }}
           VOICE: ${{ inputs.voice }}
           RATE: ${{ inputs.rate }}
-        run: node scripts/make-voiceover.mjs
+        run: node scripts/make-voiceover.mjs 2>&1 | tee tmp-vo.log; exit ${PIPESTATUS[0]}
+        shell: bash
+
+      - name: Push result to this branch (temporary, for Claude session)
+        if: always() && github.ref_name == 'voiceover-naijakenya'
+        run: |
+          mkdir -p vo-out && cp tmp-vo.log vo-out/ 2>/dev/null; cp tmp/voiceover/* vo-out/ 2>/dev/null || true
+          git config user.name "github-actions" && git config user.email "actions@github.com"
+          git add -f vo-out && git commit -m "voiceover output" && git push
 
       - name: Upload voiceover
         uses: actions/upload-artifact@v4
