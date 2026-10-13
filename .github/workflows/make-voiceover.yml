@@ -44,7 +44,22 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Segment voiceover with python edge-tts (temporary)
+        if: github.ref_name == 'voiceover-naijakenya'
+        continue-on-error: true
+        env:
+          VOICE: ${{ inputs.voice }}
+          RATE: ${{ inputs.rate }}
+        run: |
+          pip install -q edge-tts 2>&1 | tail -1
+          python3 vo-in/segtts.py 2>&1 | tee tmp-seg.log
+
+      - name: Try newer msedge-tts (temporary)
+        if: github.ref_name == 'voiceover-naijakenya'
+        run: npm install msedge-tts@2.0.9
+
       - name: Make voiceover
+        continue-on-error: ${{ github.ref_name == 'voiceover-naijakenya' }}
         env:
           SCRIPT_TEXT: ${{ inputs.script }}
           VOICE: ${{ inputs.voice }}
@@ -55,7 +70,7 @@ jobs:
       - name: Push result to this branch (temporary, for Claude session)
         if: always() && github.ref_name == 'voiceover-naijakenya'
         run: |
-          mkdir -p vo-out && cp tmp-vo.log vo-out/ 2>/dev/null; cp tmp/voiceover/* vo-out/ 2>/dev/null || true
+          mkdir -p vo-out && cp tmp-vo.log tmp-seg.log vo-out/ 2>/dev/null; cp tmp/voiceover/* vo-out/ 2>/dev/null || true
           git config user.name "github-actions" && git config user.email "actions@github.com"
           git add -f vo-out && git commit -m "voiceover output" && git push
 
