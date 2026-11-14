@@ -27,11 +27,31 @@ import { postToX } from "@/lib/social/x";
 // The old direct Facebook call here created a second publisher and could
 // duplicate stories on the Page.
 
-const MAX_POSTS_PER_RUN = 3;
+// Nov 14 2026: was 3. Vercel kills this function at 60s and three articles
+// (rewrite + photo verification + social posts) regularly took longer, so most
+// runs timed out (FUNCTION_INVOCATION_TIMEOUT) before saving anything. One
+// article per run plus a time budget keeps each run inside the limit; the
+// hourly GitHub "Ingest News" workflow supplies the frequency instead.
+const MAX_POSTS_PER_RUN = 1;
+// Stop starting new slow steps once this much of the 60s budget is used.
+const TIME_BUDGET_MS = 48_000;
+// Instagram/X are best-effort; never let them hold up saving the article.
+const SOCIAL_TIMEOUT_MS = 6_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
   const auth = req.headers.get("authorization");
   const querySecret = req.nextUrl.searchParams.get("secret");
 
@@ -91,6 +111,10 @@ export async function GET(req: NextRequest) {
   const errors: string[] = [];
 
   for (const rawArticle of freshRaw) {
+    if (elapsed() > TIME_BUDGET_MS - 20_000) {
+      console.log("Ingest time budget nearly used; leaving remaining items for the next run.");
+      break;
+    }
     try {
       const pageData = await fetchArticlePage(rawArticle.link);
       const rewritten = await rewriteArticle(rawArticle, pageData.bodyText);
@@ -129,7 +153,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Otherwise use the verified photo discovery engine.
-      if (!photo) {
+      if (!photo && elapsed() < TIME_BUDGET_MS) {
         photo = await findMatchingPhoto(
           rewritten.photoSearchTerms,
           rewritten.entities,
@@ -137,6 +161,12 @@ export async function GET(req: NextRequest) {
           rewritten.photoSearchQueries,
           rewritten.photoNeedsCurrentEvent
         );
+      }
+
+      if (!photo) {
+        skippedNoPhoto.push(rewritten.headline);
+        console.log(`Skipping "${rewritten.headline}": out of time before a photo was found.`);
+        continue;
       }
 
       // A Facebook news card must have a real image. Do not create another
@@ -170,10 +200,11 @@ export async function GET(req: NextRequest) {
       const socialImageUrl = `${siteUrl}/api/og/${id}?v=4`;
 
       try {
-        await postToInstagram(
-          socialImageUrl,
-          rewritten.instagramCaption,
-          ownArticleUrl
+        if (elapsed() > TIME_BUDGET_MS) throw new Error("skipped: out of time");
+        await withTimeout(
+          postToInstagram(socialImageUrl, rewritten.instagramCaption, ownArticleUrl),
+          SOCIAL_TIMEOUT_MS,
+          "Instagram"
         );
         stored.postedTo.instagram = true;
       } catch (e) {
@@ -183,10 +214,11 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        await postToX(
-          socialImageUrl,
-          rewritten.xCaption,
-          ownArticleUrl
+        if (elapsed() > TIME_BUDGET_MS) throw new Error("skipped: out of time");
+        await withTimeout(
+          postToX(socialImageUrl, rewritten.xCaption, ownArticleUrl),
+          SOCIAL_TIMEOUT_MS,
+          "X"
         );
         stored.postedTo.x = true;
       } catch (e) {
@@ -228,5 +260,6 @@ export async function GET(req: NextRequest) {
     breakingFacebookPostsToday: breakingPostedToday,
     results,
     errors,
+    elapsedMs: elapsed(),
   });
 }
