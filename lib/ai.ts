@@ -1,5 +1,15 @@
 import type { RawArticle } from "./rss";
 
+// Nov 14 2026: Gemini often answers 503 "high demand" for a few seconds.
+// One quick retry rescues most of those ingest runs.
+async function fetchGeminiWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const first = await fetch(url, init);
+  if (first.status !== 503 && first.status !== 429) return first;
+  await new Promise((r) => setTimeout(r, 3000));
+  return fetch(url, init);
+}
+
+
 export interface RewrittenArticle {
   headline: string;
   teaser: string;
@@ -187,7 +197,7 @@ ${extractedPageText}`
 
 (No extracted page text was available - work only from the snippet and keep the article short.)`;
 
-  const res = await fetch(
+  const res = await fetchGeminiWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
     {
       method: "POST",
